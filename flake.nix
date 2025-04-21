@@ -10,7 +10,7 @@
       systems = [ "x86_64-linux" ];
       perSystem = { config, self', pkgs, lib, system, ... }:
         let
-          runtimeDeps = with pkgs; [ alsa-lib speechd ];
+          runtimeDeps = with pkgs; [ alsa-lib speechd openssl ];
           buildDeps = with pkgs; [ pkg-config rustPlatform.bindgenHook ];
           devDeps = with pkgs; [ gdb ];
 
@@ -47,11 +47,10 @@
             overlays = [ (import inputs.rust-overlay) ];
           };
 
-          packages.default = self'.packages.example;
+          packages.default = self'.packages.vista;
           devShells.default = self'.devShells.nightly;
 
-          packages.example = (rustPackage "foobar");
-          packages.example-base = (rustPackage "");
+          packages.vista = (rustPackage "");
 
           devShells.nightly = (mkDevShell (pkgs.rust-bin.selectLatestNightlyWith
             (toolchain: toolchain.default)));

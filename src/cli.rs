@@ -31,3 +31,7 @@ pub struct Args {
 	#[arg(short, long, default_value = "mobilenet_ssd/MobileNetSSD_deploy.caffemodel")]
 	model: String
 }
+
+pub fn parse_args() -> Args {
+	Args::parse()
+}
