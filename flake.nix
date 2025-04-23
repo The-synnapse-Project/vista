@@ -6,56 +6,73 @@
   };
 
   outputs = inputs:
-    inputs.flake-parts.lib.mkFlake { inherit inputs; } {
-      systems = [ "x86_64-linux" ];
-      perSystem = { config, self', pkgs, lib, system, ... }:
-        let
-          runtimeDeps = with pkgs; [ alsa-lib speechd openssl ];
-          buildDeps = with pkgs; [ pkg-config rustPlatform.bindgenHook ];
-          devDeps = with pkgs; [ gdb ];
+    inputs.flake-parts.lib.mkFlake {inherit inputs;} {
+      systems = ["x86_64-linux"];
+      perSystem = {
+        config,
+        self',
+        pkgs,
+        lib,
+        system,
+        ...
+      }: let
+        runtimeDeps = with pkgs; [
+          alsa-lib
+          speechd
+          openssl
+          glib
+          ffmpeg
+          libva
+          opencv
+        ];
+        buildDeps = with pkgs; [pkg-config rustPlatform.bindgenHook clang];
+        devDeps = with pkgs; [gdb sea-orm-cli pkg-config];
 
-          cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
-          msrv = cargoToml.package.rust-version;
+        cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+        msrv = cargoToml.package.rust-version;
 
-          rustPackage = features:
-            (pkgs.makeRustPlatform {
-              cargo = pkgs.rust-bin.stable.latest.minimal;
-              rustc = pkgs.rust-bin.stable.latest.minimal;
-            }).buildRustPackage {
-              inherit (cargoToml.package) name version;
-              src = ./.;
-              cargoLock.lockFile = ./Cargo.lock;
-              buildFeatures = features;
-              buildInputs = runtimeDeps;
-              nativeBuildInputs = buildDeps;
-              # Uncomment if your cargo tests require networking or otherwise
-              # don't play nicely with the Nix build sandbox:
-              # doCheck = false;
-            };
-
-          mkDevShell = rustc:
-            pkgs.mkShell {
-              shellHook = ''
-                export RUST_SRC_PATH=${pkgs.rustPlatform.rustLibSrc}
-              '';
-              buildInputs = runtimeDeps;
-              nativeBuildInputs = buildDeps ++ devDeps ++ [ rustc ];
-            };
-        in {
-          _module.args.pkgs = import inputs.nixpkgs {
-            inherit system;
-            overlays = [ (import inputs.rust-overlay) ];
+        rustPackage = features:
+          (pkgs.makeRustPlatform {
+            cargo = pkgs.rust-bin.stable.latest.minimal;
+            rustc = pkgs.rust-bin.stable.latest.minimal;
+          }).buildRustPackage {
+            inherit (cargoToml.package) name version;
+            src = ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+            buildFeatures = features;
+            buildInputs = runtimeDeps;
+            nativeBuildInputs = buildDeps;
+            # Uncomment if your cargo tests require networking or otherwise
+            # don't play nicely with the Nix build sandbox:
+            # doCheck = false;
           };
 
-          packages.default = self'.packages.vista;
-          devShells.default = self'.devShells.nightly;
-
-          packages.vista = (rustPackage "");
-
-          devShells.nightly = (mkDevShell (pkgs.rust-bin.selectLatestNightlyWith
-            (toolchain: toolchain.default)));
-          devShells.stable = (mkDevShell pkgs.rust-bin.stable.latest.default);
-          devShells.msrv = (mkDevShell pkgs.rust-bin.stable.${msrv}.default);
+        mkDevShell = rustc:
+          pkgs.mkShell {
+            shellHook = ''
+              export RUST_SRC_PATH="${pkgs.rustPlatform.rustLibSrc}";
+              export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig";
+              export LIBCLANG_PATH="${pkgs.llvmPackages.libclang.lib}/lib";
+            '';
+            buildInputs = runtimeDeps;
+            nativeBuildInputs = buildDeps ++ devDeps ++ [rustc];
+          };
+      in {
+        _module.args.pkgs = import inputs.nixpkgs {
+          inherit system;
+          overlays = [(import inputs.rust-overlay)];
         };
+
+        packages.default = self'.packages.vista;
+        devShells.default = self'.devShells.nightly;
+
+        packages.vista = rustPackage "";
+
+        devShells.nightly =
+          mkDevShell (pkgs.rust-bin.selectLatestNightlyWith
+            (toolchain: toolchain.default));
+        devShells.stable = mkDevShell pkgs.rust-bin.stable.latest.default;
+        devShells.msrv = mkDevShell pkgs.rust-bin.stable.${msrv}.default;
+      };
     };
 }
