@@ -1,18 +1,44 @@
+//! # Logging Library
+//!
+//! This module provides a thread-safe, global logging system with configurable log levels
+//! and colored output formatting.
+
 use colored::Colorize;
 use std::cell::RefCell;
 use std::fmt::Display;
 use std::sync::{Arc, Once};
 
+/// Submodule containing advanced logger implementations
 pub mod logger;
 
-// Global static for initialization
+/// Global static for ensuring logger initialization happens only once
 static LOGGER_INIT: Once = Once::new();
-// Thread-local storage for logger reference
+/// Thread-local storage for holding the current logger instance
 thread_local! {
     static LOGGER: RefCell<Option<Arc<dyn Logger + Send + Sync>>> = RefCell::new(None);
 }
 
-// Set the global logger
+/// Sets the global logger instance for the application
+///
+/// # Arguments
+///
+/// * `logger` - A thread-safe reference to a logger implementation
+///
+/// # Returns
+///
+/// * `Ok(())` if the logger was successfully set
+/// * `Err(LogError::AlreadyInitialized)` if a logger has already been initialized
+///
+/// # Example
+///
+/// ```
+/// use std::sync::Arc;
+/// use my_crate::logger::AdvancedLogger;
+/// use my_crate::{set_logger, LogLevel};
+///
+/// let logger = Arc::new(AdvancedLogger::new(LogLevel::Debug, None));
+/// set_logger(logger).expect("Failed to initialize logger");
+/// ```
 pub fn set_logger(logger: Arc<dyn Logger + Send + Sync>) -> Result<(), LogError> {
     if LOGGER_INIT.is_completed() {
         return Err(LogError::AlreadyInitialized);
@@ -27,14 +53,22 @@ pub fn set_logger(logger: Arc<dyn Logger + Send + Sync>) -> Result<(), LogError>
     Ok(())
 }
 
-// Get the logger reference
+/// Retrieves a reference to the current global logger, if one is set
+///
+/// # Returns
+///
+/// * `Some(Arc<dyn Logger + Send + Sync>)` if a logger has been initialized
+/// * `None` if no logger has been set
 pub fn logger() -> Option<Arc<dyn Logger + Send + Sync>> {
     LOGGER.with(|cell| cell.borrow().clone())
 }
 
+/// Errors that can occur during logger operations
 #[derive(Debug)]
 pub enum LogError {
+    /// Returned when attempting to initialize a logger after one has already been set
     AlreadyInitialized,
+    /// Returned when attempting to use a logger before one has been set
     NoLogger,
 }
 
@@ -47,28 +81,49 @@ impl Display for LogError {
     }
 }
 
+/// Trait that all logger implementations must implement
 pub trait Logger: Send + Sync {
+    /// Logs a message at INFO level
     fn info(&self, message: &str);
+    /// Logs a message at WARNING level
     fn warning(&self, message: &str);
+    /// Logs a message at ERROR level
     fn error(&self, message: &str);
+    /// Logs a message at CRITICAL level
     fn critical(&self, message: &str);
+    /// Logs a message at DEBUG level
     fn debug(&self, message: &str);
+    /// Logs a message with a specified log level
     fn log(&self, level: LogLevel, message: &str);
+    /// Sets the minimum logging level that will be output
     fn set_level(&self, level: LogLevel);
 }
 
+/// Defines the possible logging levels in order of increasing severity
+///
+/// The default level is Info.
 #[derive(Debug, Clone, Copy, Default)]
 pub enum LogLevel {
     #[default]
+    /// Standard informational messages
     Info,
+    /// Warning messages indicating potential issues
     Warning,
+    /// Error messages for recoverable failures
     Error,
+    /// Critical messages for severe errors that might cause program termination
     Critical,
+    /// Debug information for development purposes
     Debug,
+    /// Special level that suppresses all logging
     NoLog,
 }
 
 impl PartialOrd for LogLevel {
+    /// Implements comparison between log levels to determine priority
+    ///
+    /// Note: Order is reversed for filtering purposes, where higher-severity levels
+    /// have higher numerical values.
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         use LogLevel::*;
         let self_value = match self {
@@ -92,6 +147,7 @@ impl PartialOrd for LogLevel {
 }
 
 impl PartialEq for LogLevel {
+    /// Implements equality comparison between log levels
     fn eq(&self, other: &Self) -> bool {
         use LogLevel::*;
         let self_value = match self {
@@ -115,6 +171,7 @@ impl PartialEq for LogLevel {
 }
 
 impl Display for LogLevel {
+    /// Provides colored text formatting for each log level
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use LogLevel::*;
         let level_str = match self {
@@ -129,6 +186,15 @@ impl Display for LogLevel {
     }
 }
 
+/// Logs a message with the specified log level
+///
+/// # Example
+///
+/// ```
+/// use my_crate::{log, LogLevel};
+///
+/// log!(LogLevel::Warning, "This is a {} message", "warning");
+/// ```
 #[macro_export]
 macro_rules! log {
     ($level:expr, $($arg:tt)*) => {{
@@ -139,6 +205,15 @@ macro_rules! log {
     }};
 }
 
+/// Logs a message at INFO level
+///
+/// # Example
+///
+/// ```
+/// use my_crate::info;
+///
+/// info!("Application started with config: {}", config);
+/// ```
 #[macro_export]
 macro_rules! info {
     ($($arg:tt)*) => {{
@@ -146,6 +221,15 @@ macro_rules! info {
     }};
 }
 
+/// Logs a message at WARNING level
+///
+/// # Example
+///
+/// ```
+/// use my_crate::warning;
+///
+/// warning!("Resource usage is high: {}%", usage_percent);
+/// ```
 #[macro_export]
 macro_rules! warning {
     ($($arg:tt)*) => {{
@@ -153,6 +237,15 @@ macro_rules! warning {
     }};
 }
 
+/// Logs a message at ERROR level
+///
+/// # Example
+///
+/// ```
+/// use my_crate::error;
+///
+/// error!("Failed to connect to database: {}", err);
+/// ```
 #[macro_export]
 macro_rules! error {
     ($($arg:tt)*) => {{
@@ -160,6 +253,15 @@ macro_rules! error {
     }};
 }
 
+/// Logs a message at CRITICAL level
+///
+/// # Example
+///
+/// ```
+/// use my_crate::critical;
+///
+/// critical!("System integrity compromised: {}", err);
+/// ```
 #[macro_export]
 macro_rules! critical {
     ($($arg:tt)*) => {{
@@ -167,6 +269,15 @@ macro_rules! critical {
     }};
 }
 
+/// Logs a message at DEBUG level
+///
+/// # Example
+///
+/// ```
+/// use my_crate::debug;
+///
+/// debug!("Processing item {:?} with options {:?}", item, opts);
+/// ```
 #[macro_export]
 macro_rules! debug {
     ($($arg:tt)*) => {{

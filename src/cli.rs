@@ -8,7 +8,7 @@ pub struct Args {
     pub input: Option<String>,
 
     /// Output debug information
-    #[arg(long)]
+    #[arg(short, long)]
     pub verbose: bool,
 
     /// Output file for processed data

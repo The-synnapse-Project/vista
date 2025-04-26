@@ -1,7 +1,8 @@
 use cli::{Args, parse_args};
 use conf::load_config;
-use cv::FrameMetrics::FrameMetrics;
+use cv::frame_metrics::FrameMetrics;
 use cv::{get_stream_camera, init_window, preprocess_frame};
+use log::debug;
 use log::{critical, info, logger::AdvancedLogger};
 use opencv::core::{Mat, Point, Scalar};
 use opencv::imgproc::{HersheyFonts, LineTypes};
@@ -35,17 +36,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Ok(mut stream) = get_stream_camera() {
         info!("Camera stream opened successfully");
+        let mut fps = FrameMetrics::new();
         loop {
             let mut frame = Mat::default();
-            let mut fps = FrameMetrics::new();
 
             stream.read(&mut frame)?;
+            fps.update();
 
             if let Ok(mut proc_frame) = preprocess_frame(&frame) {
-                highgui::imshow(win_name, &proc_frame)?;
                 imgproc::put_text(
                     &mut proc_frame,
-                    &format!("FPS: {:.1}ms", fps.get_fps()),
+                    &format!("FPS: {:.0}ms", fps.get_fps()),
                     Point::new(10, 30),
                     HersheyFonts::FONT_HERSHEY_SIMPLEX.into(),
                     0.6,
@@ -54,12 +55,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     LineTypes::LINE_AA.into(),
                     false,
                 )?;
+                highgui::imshow(win_name, &proc_frame)?;
+                debug!("Running at {} FPS", fps.get_fps());
+                debug!("Frame time {:.1}ms", fps.get_last_frame_time().as_millis());
+
                 if highgui::wait_key(10)? >= 0 {
                     break;
                 }
             }
-
-            fps.update();
         }
         highgui::destroy_all_windows()?;
     } else {
