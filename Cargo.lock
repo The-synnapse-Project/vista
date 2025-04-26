@@ -3096,6 +3096,7 @@ dependencies = [
  "clap",
  "confy",
  "entity",
+ "log",
  "migration",
  "opencv",
  "sea-orm",

@@ -1,5 +1,5 @@
 use clap::Parser;
-use cli::parse_args;
+use cli::{parse_args, Args};
 use conf::load_config;
 
 mod cli;
@@ -8,6 +8,6 @@ mod conf;
 mod cv;
 
 fn main() {
-	let args = parse_args();
+	let args: Args = parse_args();
 	let cfg = load_config();
 }

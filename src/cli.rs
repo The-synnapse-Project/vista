@@ -5,15 +5,15 @@ use clap::Parser;
 pub struct Args {
 	/// Read a file instead of using the cammera
 	#[arg(short, long)]
-	video: String,
+	video: Option<String>,
 
 	/// Export processed data to a file
 	#[arg(short, long)]
-	proces: String,
+	proces: Option<String>,
 
 	/// Output debug information
 	#[arg(short, long)]
-	debug: bool,
+	debug: Option<bool>,
 
 	/// Default confidence value for detections
 	#[arg(short, long, default_value_t = 0.1)]
