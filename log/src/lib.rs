@@ -2,7 +2,6 @@
 //!
 //! This module provides a thread-safe, global logging system with configurable log levels
 //! and colored output formatting.
-
 use colored::Colorize;
 use std::cell::RefCell;
 use std::fmt::Display;
@@ -13,7 +12,8 @@ pub mod logger;
 
 /// Global static for ensuring logger initialization happens only once
 static LOGGER_INIT: Once = Once::new();
-/// Thread-local storage for holding the current logger instance
+
+// Thread-local storage for holding the current logger instance
 thread_local! {
     static LOGGER: RefCell<Option<Arc<dyn Logger + Send + Sync>>> = RefCell::new(None);
 }

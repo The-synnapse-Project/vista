@@ -21,3 +21,6 @@ features = [
   # "sqlx-postgres",         # `DATABASE_DRIVER` feature
   "sqlx-mysql", "runtime-tokio-native-tls"
 ]
+
+[lints.clippy]
+unreachable_code = "warn"

@@ -1,26 +1,39 @@
 use cli::{Args, parse_args};
 use conf::load_config;
 use cv::frame_metrics::FrameMetrics;
-use cv::{get_stream_camera, init_window, preprocess_frame};
-use log::debug;
-use log::{critical, info, logger::AdvancedLogger};
+use cv::{get_stream_camera, init_window};
+use log::logger::AdvancedLogger;
+use log::{LogLevel, critical, debug, error, info, warning};
 use opencv::core::{Mat, Point, Scalar};
 use opencv::imgproc::{HersheyFonts, LineTypes};
 use opencv::videoio::VideoCaptureTrait;
 use opencv::{highgui, imgproc};
+use std::env::var;
+use std::time::Instant;
 
+#[allow(unused)]
 mod cli;
+#[allow(unused)]
 mod conf;
+#[allow(unused)]
 mod cv;
-mod db;
+// mod db;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let start_time = Instant::now();
     let args: Args = parse_args();
 
     let log_level = if args.verbose {
-        log::LogLevel::Debug
+        LogLevel::Info
     } else {
-        log::LogLevel::Info
+        let log_level_env = var("SYN_LOG_LEVEL").unwrap_or_else(|_| "INFO".to_string());
+        match log_level_env.as_str().to_lowercase().as_str() {
+            "DEBUG" | "4" => LogLevel::Debug,
+            "INFO" | "3" => LogLevel::Info,
+            "WARN" | "2" => LogLevel::Warning,
+            "ERROR" | "1" => LogLevel::Error,
+            _ => LogLevel::Warning,
+        }
     };
 
     // Initialize the logger
@@ -28,63 +41,165 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Failed to initialize logger: {}", e);
     });
     info!("Logger initialized with level: {:?}", log_level);
-    // init config
-    let cfg = load_config()?;
+    debug!("Application started with arguments: {:?}", args);
 
-    info!("Loaded config: {:?}", cfg);
+    // init config
+    info!("Loading configuration...");
+    let _cfg = match load_config() {
+        Ok(config) => {
+            info!("Configuration loaded successfully");
+            debug!("Config: {:?}", config);
+            config
+        }
+        Err(e) => {
+            error!("Failed to load configuration: {}", e);
+            return Err(e.into());
+        }
+    };
+
+    debug!("Initializing display window");
     let win_name = init_window();
 
-    if let Ok(mut stream) = get_stream_camera() {
-        info!("Camera stream opened successfully");
-        let mut fps = FrameMetrics::new();
-        loop {
-            let mut frame = Mat::default();
+    info!("Opening camera stream...");
+    match get_stream_camera() {
+        Ok(mut stream) => {
+            info!("Camera stream opened successfully");
+            let mut fps = FrameMetrics::new();
+            info!("Starting main processing loop");
 
-            stream.read(&mut frame)?;
-            fps.update();
+            let mut frame_count = 0;
+            let processing_start = Instant::now();
 
-            let net = cv::net::Net::new(&args.proto, &args.model).unwrap();
+            loop {
+                let frame_start = Instant::now();
+                frame_count += 1;
 
-            if let Ok(mut proc_frame) = cv::net::Net::preprocess_frame(&frame) {
-                imgproc::put_text(
-                    &mut proc_frame,
-                    &format!("FPS: {} FPS", fps.get_fps().round()),
-                    Point::new(10, 30),
-                    HersheyFonts::FONT_HERSHEY_SIMPLEX.into(),
-                    0.6,
-                    Scalar::new(255.0, 255.0, 255.0, 0.0),
-                    1,
-                    LineTypes::LINE_AA.into(),
-                    false,
-                )?;
+                let mut frame = Mat::default();
+                debug!("Capturing frame #{}...", frame_count);
 
-                imgproc::put_text(
-                    &mut proc_frame,
-                    &format!("Frame time: {}ms", fps.get_last_frame_time().as_millis()),
-                    Point::new(10, 60),
-                    HersheyFonts::FONT_HERSHEY_SIMPLEX.into(),
-                    0.6,
-                    Scalar::new(255.0, 255.0, 255.0, 0.0),
-                    1,
-                    LineTypes::LINE_AA.into(),
-                    false,
-                )?;
+                match stream.read(&mut frame) {
+                    Ok(_) => debug!("Frame captured successfully"),
+                    Err(e) => {
+                        error!("Failed to read from camera: {}", e);
+                        break;
+                    }
+                }
 
-                net.process_frame(&frame);
+                fps.update();
 
-                highgui::imshow(win_name, &proc_frame)?;
-                debug!("Running at {} FPS", fps.get_fps());
-                debug!("Frame time {:.1}ms", fps.get_last_frame_time().as_millis());
+                debug!("Loading neural network model...");
+                match cv::net::Net::new(&args.proto, &args.model) {
+                    Ok(mut net) => {
+                        match cv::net::Net::preprocess_frame(&frame) {
+                            Ok(mut proc_frame) => {
+                                debug!("Adding performance metrics overlay to frame");
 
-                if highgui::wait_key(10)? >= 0 {
-                    break;
+                                // Add FPS counter
+                                if let Err(e) = imgproc::put_text(
+                                    &mut proc_frame,
+                                    &format!(
+                                        "FPS: {:.1} FPS | FT {:.1}ms",
+                                        fps.get_fps().round(),
+                                        fps.get_last_frame_time().as_millis()
+                                    ),
+                                    Point::new(10, 30),
+                                    HersheyFonts::FONT_HERSHEY_SIMPLEX.into(),
+                                    0.6,
+                                    Scalar::new(255.0, 255.0, 255.0, 0.0),
+                                    1,
+                                    LineTypes::LINE_AA.into(),
+                                    false,
+                                ) {
+                                    warning!("Failed to add FPS text to frame: {}", e);
+                                }
+
+                                // Add more performance metrics
+                                if let Err(e) = imgproc::put_text(
+                                    &mut proc_frame,
+                                    &format!(
+                                        "Avg: {:.1} | Min: {:.1} | Max: {:.1} FPS",
+                                        fps.get_avg_fps(),
+                                        fps.get_min_fps(),
+                                        fps.get_max_fps()
+                                    ),
+                                    Point::new(10, 60),
+                                    HersheyFonts::FONT_HERSHEY_SIMPLEX.into(),
+                                    0.6,
+                                    Scalar::new(255.0, 255.0, 255.0, 0.0),
+                                    1,
+                                    LineTypes::LINE_AA.into(),
+                                    false,
+                                ) {
+                                    warning!("Failed to add extended metrics text: {}", e);
+                                }
+
+                                debug!("Processing frame with neural network");
+                                if let Err(e) = net.process_frame(&frame) {
+                                    error!("Failed to process frame: {}", e);
+                                }
+
+                                debug!("Displaying processed frame");
+                                if let Err(e) = highgui::imshow(win_name, &proc_frame) {
+                                    error!("Failed to display frame: {}", e);
+                                    break;
+                                }
+
+                                // Log detailed metrics periodically
+                                if frame_count % 100 == 0 {
+                                    let total_time = processing_start.elapsed();
+                                    info!(
+                                        "Processed {} frames in {:.1} seconds (avg {:.1} FPS, current {:.1} FPS)",
+                                        frame_count,
+                                        total_time.as_secs_f32(),
+                                        frame_count as f32 / total_time.as_secs_f32(),
+                                        fps.get_fps()
+                                    );
+                                }
+
+                                // Check for exit key
+                                let key = highgui::wait_key(10)?;
+                                if key >= 0 {
+                                    info!("User requested exit (key: {})", key);
+                                    break;
+                                }
+
+                                debug!(
+                                    "Frame #{} processed in {:?}",
+                                    frame_count,
+                                    frame_start.elapsed()
+                                );
+                            }
+                            Err(e) => {
+                                error!("Failed to preprocess frame: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to load neural network model: {}", e);
+                        break;
+                    }
                 }
             }
+
+            let total_runtime = start_time.elapsed();
+            info!("Application shutting down after {} frames", frame_count);
+            info!("Total runtime: {:.2} seconds", total_runtime.as_secs_f32());
+            info!(
+                "Average performance: {:.1} FPS",
+                frame_count as f32 / total_runtime.as_secs_f32()
+            );
+
+            debug!("Destroying all windows");
+            if let Err(e) = highgui::destroy_all_windows() {
+                warning!("Failed to clean up windows: {}", e);
+            }
         }
-        highgui::destroy_all_windows()?;
-    } else {
-        critical!("Failed to open camera stream");
-        panic!("Failed to open camera stream");
+        Err(e) => {
+            critical!("Failed to open camera stream: {}", e);
+            return Err(Box::new(e));
+        }
     }
+
+    info!("Application exited successfully");
     Ok(())
 }
