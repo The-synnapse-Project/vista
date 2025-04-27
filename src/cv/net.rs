@@ -103,19 +103,27 @@ impl Net {
                                     if *class_id < Net::CLASSES.len() as f32
                                         && Net::CLASSES[*class_id as usize] == "person"
                                     {
-										let start_x = Net::mat_pos_default(&detections, &[0, 0, i as i32, 3]) as i32;
-										let start_y = Net::mat_pos_default(&detections, &[0, 0, i as i32, 4]) as i32;
-										let end_x = Net::mat_pos_default(&detections, &[0, 0, i as i32, 5]) as i32;
-										let end_y = Net::mat_pos_default(&detections, &[0, 0, i as i32, 6]) as i32;
+                                        let start_x =
+                                            Net::mat_pos_default(&detections, &[0, 0, i as i32, 3])
+                                                as i32;
+                                        let start_y =
+                                            Net::mat_pos_default(&detections, &[0, 0, i as i32, 4])
+                                                as i32;
+                                        let end_x =
+                                            Net::mat_pos_default(&detections, &[0, 0, i as i32, 5])
+                                                as i32;
+                                        let end_y =
+                                            Net::mat_pos_default(&detections, &[0, 0, i as i32, 6])
+                                                as i32;
 
-										let rect = Rect::new(
-											start_x.max(0),
-											start_y.max(0),
-											(end_x - start_x).max(1),
-											(end_y - start_y).max(1),
-										);
+                                        let rect = Rect::new(
+                                            start_x.max(0),
+                                            start_y.max(0),
+                                            (end_x - start_x).max(1),
+                                            (end_y - start_y).max(1),
+                                        );
 
-										info!("sigma {rect:?}");
+                                        info!("Recta {rect:?}");
                                     }
                                 };
                             }
@@ -126,7 +134,7 @@ impl Net {
         };
     }
 
-	#[inline]
+    #[inline]
     fn mat_pos_default(mat: &Mat, pos: &[i32]) -> f32 {
         match mat.at_nd::<f32>(pos) {
             Ok(ok) => *ok,
@@ -141,14 +149,11 @@ pub struct Detection {
     pub tod: Instant,
 }
 
-
 impl Detection {
     pub fn new(detection: Rect) -> Detection {
-		Detection {
-			detection,
-			tod: Instant::now()
-		}
-	}
-
+        Detection {
+            detection,
+            tod: Instant::now(),
+        }
+    }
 }
-

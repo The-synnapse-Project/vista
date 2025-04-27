@@ -43,12 +43,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             stream.read(&mut frame)?;
             fps.update();
 
-			let net = cv::net::Net::new(&args.proto, &args.model).unwrap();
+            let net = cv::net::Net::new(&args.proto, &args.model).unwrap();
 
             if let Ok(mut proc_frame) = cv::net::Net::preprocess_frame(&frame) {
                 imgproc::put_text(
                     &mut proc_frame,
-                    &format!("FPS: {:.0}ms", fps.get_fps()),
+                    &format!("FPS: {} FPS", fps.get_fps().round()),
                     Point::new(10, 30),
                     HersheyFonts::FONT_HERSHEY_SIMPLEX.into(),
                     0.6,
@@ -58,8 +58,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     false,
                 )?;
 
-				net.process_frame(&frame);
-				
+                imgproc::put_text(
+                    &mut proc_frame,
+                    &format!("Frame time: {}ms", fps.get_last_frame_time().as_millis()),
+                    Point::new(10, 60),
+                    HersheyFonts::FONT_HERSHEY_SIMPLEX.into(),
+                    0.6,
+                    Scalar::new(255.0, 255.0, 255.0, 0.0),
+                    1,
+                    LineTypes::LINE_AA.into(),
+                    false,
+                )?;
+
+                net.process_frame(&frame);
+
                 highgui::imshow(win_name, &proc_frame)?;
                 debug!("Running at {} FPS", fps.get_fps());
                 debug!("Frame time {:.1}ms", fps.get_last_frame_time().as_millis());
