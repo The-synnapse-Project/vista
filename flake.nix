@@ -55,9 +55,11 @@
             glib
             ffmpeg
             libva
-            opencv
+            (opencv.override { enableGtk3 = true; enableGStreamer = true; enableGtk2 = true; })
             pkg-config
             clang
+            protobuf_29
+            protobufc
           ]
           ++ lib.optionals pkgs.stdenv.isDarwin [
             # Additional darwin specific inputs can be set here
@@ -179,6 +181,7 @@
           opencv
           pkg-config
           clang
+          protobuf_29
         ];
       };
     });

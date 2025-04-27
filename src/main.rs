@@ -43,7 +43,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             stream.read(&mut frame)?;
             fps.update();
 
-            if let Ok(mut proc_frame) = preprocess_frame(&frame) {
+			let net = cv::net::Net::new(&args.proto, &args.model).unwrap();
+
+            if let Ok(mut proc_frame) = cv::net::Net::preprocess_frame(&frame) {
                 imgproc::put_text(
                     &mut proc_frame,
                     &format!("FPS: {:.0}ms", fps.get_fps()),
@@ -55,6 +57,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     LineTypes::LINE_AA.into(),
                     false,
                 )?;
+
+				net.process_frame(&frame);
+				
                 highgui::imshow(win_name, &proc_frame)?;
                 debug!("Running at {} FPS", fps.get_fps());
                 debug!("Frame time {:.1}ms", fps.get_last_frame_time().as_millis());

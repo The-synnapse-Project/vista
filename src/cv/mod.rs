@@ -1,4 +1,5 @@
 pub mod frame_metrics;
+pub mod net;
 
 use log::info;
 use opencv::core::{AlgorithmHint, CV_32F, Mat, MatTraitConst, ROTATE_180, Scalar, Size, rotate};
@@ -17,7 +18,7 @@ pub fn get_stream_file(file: &str) -> Result<VideoCapture, opencv::Error> {
 }
 
 /// Rotates, resizes and converts ro grayscale frame for processing
-pub fn preprocess_frame(frame: &Mat, write: bool) -> opencv::Result<Mat> {
+pub fn preprocess_frame(frame: &Mat) -> opencv::Result<Mat> {
     let mut rotated = Mat::default();
     rotate(&frame, &mut rotated, ROTATE_180)?;
 
