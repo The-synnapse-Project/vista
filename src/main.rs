@@ -60,8 +60,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     debug!("Initializing display window");
     let win_name = init_window();
 
-    info!("Opening camera stream...");
-    match get_stream_camera() {
+    let video_file = if let Some(vf) = args.input {
+        vf
+    } else {
+        "/dev/video0".to_string()
+    };
+
+    match get_stream_camera(&video_file) {
         Ok(mut stream) => {
             info!("Camera stream opened successfully");
             let mut fps = FrameMetrics::new();

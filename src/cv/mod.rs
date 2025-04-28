@@ -2,16 +2,16 @@ pub mod frame_metrics;
 pub mod mat_view;
 pub mod net;
 
-use log::{debug, info};
+use log::{debug, info, warning};
 use opencv::highgui;
-use opencv::videoio::VideoCapture;
+use opencv::videoio::{CAP_ANY, VideoCapture};
 
-pub fn get_stream_camera() -> Result<VideoCapture, opencv::Error> {
+pub fn get_stream_camera(file: &str) -> Result<VideoCapture, opencv::Error> {
     info!("Opening camera stream");
-    let camera = VideoCapture::new_def(0);
+    let camera = VideoCapture::from_file(file, CAP_ANY);
     match &camera {
         Ok(_) => debug!("Camera opened successfully with default settings"),
-        Err(e) => info!("Failed to open camera: {}", e),
+        Err(e) => warning!("Failed to open camera: {}", e),
     }
     camera
 }

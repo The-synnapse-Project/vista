@@ -1,4 +1,5 @@
 use crate::{LogError, LogLevel, Logger, set_logger};
+use colored::Colorize;
 use dirs::data_dir;
 use std::io::Write;
 use std::path::PathBuf;
@@ -22,6 +23,17 @@ impl AdvancedLogger {
 
                 std::fs::rename(file, &renamed_path).unwrap_or_else(|e| {
                     eprintln!("Failed to rename existing log file: {}", e);
+                });
+
+                let mut compressed_file = renamed_path.clone();
+
+                compressed_file.set_extension("7z");
+
+                sevenz_rust2::compress_to_path(&renamed_path, &compressed_file)
+                    .unwrap_or_else(|e| eprintln!("Failed to compress file: {}", e));
+
+                std::fs::remove_file(&renamed_path).unwrap_or_else(|e| {
+                    eprintln!("Failed to remove old log file: {}", e);
                 });
             }
 
@@ -102,10 +114,16 @@ impl Logger for AdvancedLogger {
     fn log(&self, level: LogLevel, message: &str) {
         if self.level >= level {
             let timestamp = chrono::Local::now().format("%d%m%Y %H:%M:%S");
-            let msg = format!("{} - [{}] - {}", timestamp, level, message);
-            println!("{}", msg);
+            let print_msg = format!("{} - [{}] - {}", timestamp, level, message);
+            let write_msg = format!(
+                "{} - [{}] - {}",
+                timestamp,
+                level.to_string().normal().clear(),
+                message
+            );
+            println!("{}", print_msg);
             if let Some(ref file) = self.log_file {
-                log_to_file(file, &msg).unwrap_or_else(|e| {
+                log_to_file(file, &write_msg).unwrap_or_else(|e| {
                     eprintln!("Failed to write to log file: {}", e);
                 });
             }

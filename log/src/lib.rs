@@ -176,11 +176,11 @@ impl Display for LogLevel {
         use LogLevel::*;
         let level_str = match self {
             NoLog => "",
-            Info => &format!("{}", "INFO".blue()),
-            Warning => &format!("{}", "WARNING".yellow()),
-            Error => &format!("{}", "ERROR".red()),
-            Critical => &format!("{}", "CRITICAL".bright_red()),
-            Debug => &format!("{}", "DEBUG".cyan()),
+            Info => &format!("{}", "INFO".blue().bold()),
+            Warning => &format!("{}", "WARNING".yellow().bold()),
+            Error => &format!("{}", "ERROR".red().bold()),
+            Critical => &format!("{}", "CRITICAL".bright_red().bold()),
+            Debug => &format!("{}", "DEBUG".cyan().bold()),
         };
         write!(f, "{}", level_str)
     }
