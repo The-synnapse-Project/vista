@@ -115,14 +115,14 @@ impl Logger for AdvancedLogger {
         if self.level >= level {
             let timestamp = chrono::Local::now().format("%d%m%Y %H:%M:%S");
             let print_msg = format!("{} - [{}] - {}", timestamp, level, message);
-            let write_msg = format!(
-                "{} - [{}] - {}",
-                timestamp,
-                level.to_string().normal().clear(),
-                message
-            );
             println!("{}", print_msg);
             if let Some(ref file) = self.log_file {
+                let write_msg = format!(
+                    "{} - [{}] - {}",
+                    timestamp,
+                    level.as_str().to_uppercase(),
+                    message
+                );
                 log_to_file(file, &write_msg).unwrap_or_else(|e| {
                     eprintln!("Failed to write to log file: {}", e);
                 });

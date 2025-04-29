@@ -119,6 +119,20 @@ pub enum LogLevel {
     NoLog,
 }
 
+impl LogLevel {
+    /// Returns the string representation of the log level
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LogLevel::NoLog => "NoLog",
+            LogLevel::Debug => "Debug",
+            LogLevel::Info => "Info",
+            LogLevel::Warning => "Warning",
+            LogLevel::Error => "Error",
+            LogLevel::Critical => "Critical",
+        }
+    }
+}
+
 impl PartialOrd for LogLevel {
     /// Implements comparison between log levels to determine priority
     ///
