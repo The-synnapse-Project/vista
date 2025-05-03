@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::*;
 
+#[derive(Debug, Clone)]
 pub struct Net {
     net: dnn::Net,
     detections: Arc<Mutex<Vec<Detection>>>,
@@ -68,7 +69,7 @@ impl Net {
         "tvmonitor",
     ];
 
-    pub fn preprocess_frame(frame: &Mat) -> opencv::Result<Mat> {
+    pub fn preprocess_frame(self, frame: &Mat) -> opencv::Result<Mat> {
         debug!("Preprocessing frame: starting transformation pipeline");
         let start_time = Instant::now();
 

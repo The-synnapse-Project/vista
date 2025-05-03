@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize the logger
     AdvancedLogger::init(log_level).unwrap_or_else(|e| {
-        eprintln!("Failed to initialize logger: {}", e);
+        eprintln!("Failed to initialize logger: {e}");
     });
     info!("Logger initialized with level: {:?}", log_level);
     debug!("Application started with arguments: {:?}", args);
@@ -95,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 debug!("Loading neural network model...");
                 match cv::net::Net::new(&args.proto, &args.model) {
                     Ok(mut net) => {
-                        match cv::net::Net::preprocess_frame(&frame) {
+                        match net.clone().preprocess_frame(&frame) {
                             Ok(mut proc_frame) => {
                                 debug!("Adding performance metrics overlay to frame");
 

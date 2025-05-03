@@ -1,5 +1,4 @@
 use crate::{LogError, LogLevel, Logger, set_logger};
-use colored::Colorize;
 use dirs::data_dir;
 use std::io::Write;
 use std::path::PathBuf;
@@ -22,7 +21,7 @@ impl AdvancedLogger {
                 ));
 
                 std::fs::rename(file, &renamed_path).unwrap_or_else(|e| {
-                    eprintln!("Failed to rename existing log file: {}", e);
+                    eprintln!("Failed to rename existing log file: {e}");
                 });
 
                 let mut compressed_file = renamed_path.clone();
@@ -30,25 +29,24 @@ impl AdvancedLogger {
                 compressed_file.set_extension("7z");
 
                 sevenz_rust2::compress_to_path(&renamed_path, &compressed_file)
-                    .unwrap_or_else(|e| eprintln!("Failed to compress file: {}", e));
+                    .unwrap_or_else(|e| eprintln!("Failed to compress file: {e}"));
 
                 std::fs::remove_file(&renamed_path).unwrap_or_else(|e| {
-                    eprintln!("Failed to remove old log file: {}", e);
+                    eprintln!("Failed to remove old log file: {e}");
                 });
             }
-
             // Create parent directories if they don't exist
             if let Some(parent) = file.parent() {
                 if !parent.exists() {
                     std::fs::create_dir_all(parent).unwrap_or_else(|e| {
-                        eprintln!("Failed to create log directory: {}", e);
+                        eprintln!("Failed to create log directory: {e}");
                     });
                 }
             }
 
             // Create a new log file
             std::fs::File::create(file).unwrap_or_else(|e| {
-                eprintln!("Failed to create log file: {}", e);
+                eprintln!("Failed to create log file: {e}");
                 panic!("Could not create log file");
             });
         }
@@ -80,7 +78,8 @@ fn log_to_file(log_file: &PathBuf, message: &str) -> std::io::Result<()> {
         .append(true)
         .create(true)
         .open(log_file)?;
-    writeln!(file, "{}", message)
+    writeln!(file, "{message}")?;
+    Ok(())
 }
 impl Logger for AdvancedLogger {
     fn set_level(&self, level: LogLevel) {
@@ -114,17 +113,12 @@ impl Logger for AdvancedLogger {
     fn log(&self, level: LogLevel, message: &str) {
         if self.level >= level {
             let timestamp = chrono::Local::now().format("%d%m%Y %H:%M:%S");
-            let print_msg = format!("{} - [{}] - {}", timestamp, level, message);
-            println!("{}", print_msg);
+            let print_msg = format!("{timestamp} - [{level}] - {message}");
+            println!("{print_msg}");
             if let Some(ref file) = self.log_file {
-                let write_msg = format!(
-                    "{} - [{}] - {}",
-                    timestamp,
-                    level.as_str().to_uppercase(),
-                    message
-                );
+                let write_msg = format!("{} - [{}] - {}", timestamp, level.raw_str(), message);
                 log_to_file(file, &write_msg).unwrap_or_else(|e| {
-                    eprintln!("Failed to write to log file: {}", e);
+                    eprintln!("Failed to write to log file: {e}");
                 });
             }
         }

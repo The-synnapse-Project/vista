@@ -121,14 +121,14 @@ pub enum LogLevel {
 
 impl LogLevel {
     /// Returns the string representation of the log level
-    pub fn as_str(&self) -> &'static str {
+    pub fn raw_str(&self) -> &'static str {
         match self {
-            LogLevel::NoLog => "NoLog",
-            LogLevel::Debug => "Debug",
-            LogLevel::Info => "Info",
-            LogLevel::Warning => "Warning",
-            LogLevel::Error => "Error",
-            LogLevel::Critical => "Critical",
+            LogLevel::NoLog => "NOLOG",
+            LogLevel::Debug => "DEBUG",
+            LogLevel::Info => "INFO",
+            LogLevel::Warning => "WARNING",
+            LogLevel::Error => "ERROR",
+            LogLevel::Critical => "CRITICAL",
         }
     }
 }
@@ -196,7 +196,7 @@ impl Display for LogLevel {
             Critical => &format!("{}", "CRITICAL".bright_red().bold()),
             Debug => &format!("{}", "DEBUG".cyan().bold()),
         };
-        write!(f, "{}", level_str)
+        write!(f, "{level_str}")
     }
 }
 
