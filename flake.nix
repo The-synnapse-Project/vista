@@ -55,11 +55,19 @@
             glib
             ffmpeg
             libva
-            (opencv.override { enableGtk3 = true; enableGStreamer = true; enableGtk2 = true; })
+            ((opencv.overrideAttrs (old: {
+                cmakeFlags = old.cmakeFlags ++ [(lib.cmakeFeature "CMAKE_CXX_STANDARD" "17")];
+              })).override {
+                enableGtk3 = true;
+                enableGStreamer = true;
+                enableGtk2 = true;
+                enableContrib = true;
+              })
             pkg-config
             clang
-            protobuf_29
+            protobuf_21
             protobufc
+            (python.withPackages (pypkgs: with pypkgs; [dlib]))
           ]
           ++ lib.optionals pkgs.stdenv.isDarwin [
             # Additional darwin specific inputs can be set here
@@ -181,7 +189,9 @@
           opencv
           pkg-config
           clang
-          protobuf_29
+          protobuf_21
+          protobufc
+          (python.withPackages (pypkgs: with pypkgs; [dlib]))
         ];
       };
     });

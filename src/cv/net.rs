@@ -1,10 +1,15 @@
 use crate::cv::mat_view::MatViewND;
+use anyhow::Result;
+use clap::FromArgMatches;
 use log::{debug, error, info, warning};
 use opencv::Error;
 use opencv::core::*;
 use opencv::dnn;
 use opencv::dnn::NetTrait;
 use opencv::imgproc;
+use opencv::tracking::*;
+use opencv::video::TrackerTrait;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::*;
@@ -13,11 +18,14 @@ use std::time::*;
 pub struct Net {
     net: dnn::Net,
     detections: Arc<Mutex<Vec<Detection>>>,
+    trackers: Vec<Arc<Mutex<Ptr<TrackerKCF>>>>,
     confidence: f32,
+    tracked_rects: Vec<Rect>,
+	skip_frames: u32,
 }
 
 impl Net {
-    pub fn new(prototxt: &str, caffe_model: &str) -> opencv::Result<Self> {
+    pub fn new(prototxt: &str, caffe_model: &str, skip_frames: u32) -> opencv::Result<Self> {
         debug!(
             "Loading neural network model from files: proto='{}', model='{}'",
             prototxt, caffe_model
@@ -40,8 +48,11 @@ impl Net {
 
         Ok(Self {
             net,
+            trackers: Vec::new(),
             detections: Arc::new(Mutex::new(Vec::new())),
             confidence: 0.,
+            tracked_rects: Vec::new(),
+			skip_frames
         })
     }
 
@@ -274,6 +285,56 @@ impl Net {
             }
         }
     }
+
+    fn create_tracker(&mut self, frame: &Mat, rect: Rect) -> Result<()> {
+        let mut tracker = TrackerKCF::create(TrackerKCF_Params::default()?)?;
+
+        tracker.init(frame, rect)?;
+
+        self.trackers.push(Arc::new(Mutex::new(tracker)));
+        Ok(())
+    }
+
+    fn update_trackers(&mut self, frame: &Mat) -> Result<()> {
+        let mut valid_trackers: Vec<Arc<Mutex<Ptr<TrackerKCF>>>> = Vec::new();
+        let mut current_rects = Vec::new();
+
+        let mut temp_trackers = std::mem::take(&mut self.trackers);
+
+		// NEXT Nice place to add parallel processing		
+
+        for tracker in temp_trackers.drain(..) {
+            let (success, bbox) = {
+                let mut locked = match tracker.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => {
+                        debug!("Poisoned tracker");
+                        poisoned.into_inner() //  MAYBE Check if we should recover if it's poisoned
+                    }
+                };
+
+				let mut bbox = Rect::default();
+				let success = locked.update(&frame, &mut bbox)?;
+				(success, bbox)
+            };
+
+			if success {
+				valid_trackers.push(tracker);
+				current_rects.push(bbox);
+			}
+        }
+
+        self.trackers = valid_trackers;
+        self.tracked_rects = current_rects;
+        Ok(())
+    }
+
+	fn draw_tracking_results(&self, frame: &mut Mat) -> Result<()> {
+		for rect in &self.tracked_rects {
+			imgproc::rectangle(frame, *rect, Scalar::new(0., 255., 0., 0.), 2, imgproc::LINE_8, 0)?;
+		}
+		Ok(())	
+	}
 }
 
 #[derive(Debug)]
