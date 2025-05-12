@@ -67,7 +67,6 @@
             clang
             protobuf_21
             protobufc
-            (python.withPackages (pypkgs: with pypkgs; [dlib]))
           ]
           ++ lib.optionals pkgs.stdenv.isDarwin [
             # Additional darwin specific inputs can be set here
@@ -191,7 +190,6 @@
           clang
           protobuf_21
           protobufc
-          (python.withPackages (pypkgs: with pypkgs; [dlib]))
         ];
       };
     });

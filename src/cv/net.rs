@@ -1,5 +1,5 @@
 use crate::cv::mat_view::MatViewND;
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::FromArgMatches;
 use log::{debug, error, info, warning};
 use opencv::Error;
@@ -21,11 +21,19 @@ pub struct Net {
     trackers: Vec<Arc<Mutex<Ptr<TrackerKCF>>>>,
     confidence: f32,
     tracked_rects: Vec<Rect>,
-	skip_frames: u32,
+    skip_frames: u32,
+    input_size: Size,
+    frame_count: u32,
 }
 
 impl Net {
-    pub fn new(prototxt: &str, caffe_model: &str, skip_frames: u32) -> opencv::Result<Self> {
+    pub fn new(
+        prototxt: &str,
+        caffe_model: &str,
+        confidence: f32,
+        skip_frames: u32,
+        input_size: Size,
+    ) -> opencv::Result<Self> {
         debug!(
             "Loading neural network model from files: proto='{}', model='{}'",
             prototxt, caffe_model
@@ -50,9 +58,11 @@ impl Net {
             net,
             trackers: Vec::new(),
             detections: Arc::new(Mutex::new(Vec::new())),
-            confidence: 0.,
+            confidence,
             tracked_rects: Vec::new(),
-			skip_frames
+            skip_frames,
+            input_size,
+            frame_count: 0,
         })
     }
 
@@ -80,7 +90,7 @@ impl Net {
         "tvmonitor",
     ];
 
-    pub fn preprocess_frame(self, frame: &Mat) -> opencv::Result<Mat> {
+    pub fn preprocess_frame(&self, frame: &Mat) -> opencv::Result<Mat> {
         debug!("Preprocessing frame: starting transformation pipeline");
         let start_time = Instant::now();
 
@@ -108,168 +118,43 @@ impl Net {
             }
         }
 
-        let mut grayscale = Mat::default();
-        debug!("Converting frame from BGR to RGB");
-        match imgproc::cvt_color(
-            &resized,
-            &mut grayscale,
-            imgproc::COLOR_BGR2RGB,
-            0,
-            AlgorithmHint::ALGO_HINT_DEFAULT,
-        ) {
-            Ok(_) => {}
-            Err(e) => {
-                error!("Failed to convert color space: {}", e);
-                return Err(e);
-            }
-        }
-
         debug!(
             "Frame preprocessing completed in {:?}",
             start_time.elapsed()
         );
-        Ok(grayscale)
+        Ok(resized)
     }
 
-    pub fn process_frame(&mut self, frame: &Mat) -> Result<(), Error> {
-        let process_start = Instant::now();
-        debug!("Processing frame with neural network");
+    pub fn process_frame(&mut self, frame: &Mat) -> Result<Mat> {
+        let mut rgb = self.preprocess_frame(&frame)?;
 
-        debug!("Creating blob from image");
-        let frame_blob = match dnn::blob_from_image(
-            &frame,
-            1.0 / 127.5,
-            Size::new(500, 500),
-            Scalar::new(127.5, 127.5, 127.5, 0.),
-            false,
-            true,
-            CV_32F,
-        ) {
-            Ok(blob) => blob,
-            Err(e) => {
-                error!("Failed to create blob from image: {}", e);
-                return Err(e);
-            }
-        };
+        debug!(
+            "Frame: {}, Skip: {}, Curr: {}",
+            self.frame_count,
+            self.skip_frames,
+            self.frame_count % self.skip_frames
+        );
+        if self.frame_count % self.skip_frames == 0 {
+            self.trackers.clear();
+            self.tracked_rects.clear();
 
-        // MAYBE Nice place to start doing async with fordward_async_def
-        debug!("Setting input blob to network");
-        if let Err(e) = self.net.set_input_def(&frame_blob) {
-            error!("Failed to set network input: {}", e);
-            return Err(e);
-        }
-
-        debug!("Running forward pass on network");
-        let detections = match self.net.forward_single("detection_out") {
-            Ok(det) => {
-                debug!("Forward pass completed in {:?}", process_start.elapsed());
-                det
-            }
-            Err(e) => {
-                error!("Failed to run forward pass: {}", e);
-                return Err(e);
-            }
-        };
-
-        let sizes = detections.mat_size();
-        debug!("Detection output size: {:?}", sizes);
-
-        if sizes.len() != 4 {
-            error!(
-                "Invalid output size: expected 4 dimensions, got {}",
-                sizes.len()
-            );
-            return Err(Error::new(1, "Invalid output size"));
-        }
-        let num = sizes[2] as usize;
-        debug!("Found {} potential detections", num);
-
-        info!("Loading MatView");
-        let mut clone = detections.clone();
-        let mv = match MatViewND::<f32>::new(&mut clone) {
-            Ok(view) => view,
-            Err(e) => {
-                error!("Failed to create MatView: {}", e);
-                return Err(e);
-            }
-        };
-        debug!("MatView loaded successfully");
-
-        let mut valid_detections = 0;
-        for i in 0..num {
-            // if let Ok(confidence) = detections.at_nd::<f32>(&[0, 0, i as i32, 2]) {
-            if let Ok(confidence) = detections.at_nd::<f32>(&[0, 0, i as i32, 2]) {
-                if *confidence > self.confidence {
-                    valid_detections += 1;
-                    let class_id = match detections.at_nd::<f32>(&[0, 0, i as i32, 1]) {
-                        Ok(id) => *id,
-                        Err(e) => {
-                            warning!("Failed to read class ID: {}", e);
-                            continue;
-                        }
-                    };
-
-                    if class_id >= Net::CLASSES.len() as f32 {
-                        warning!(
-                            "Invalid class ID: {}, max allowed: {}",
-                            class_id,
-                            Net::CLASSES.len() - 1
-                        );
-                        continue;
-                    }
-
-                    let class_name = Net::CLASSES[class_id as usize];
-                    debug!(
-                        "Detection #{}: class='{}', confidence={:.2}%",
-                        i,
-                        class_name,
-                        *confidence * 100.0
-                    );
-
-                    if class_name != "person" {
-                        debug!("Skipping detection for non-person class '{}'", class_name);
-                        continue;
-                    }
-
-                    // let start_x = Net::mat_pos_default(&detect_clone, &[0, 0, i as i32, 3]) as i32;
-                    let start_x = *mv.get(&[0, 0, i as i32, 3]).unwrap() as i32;
-                    let start_y = *mv.get(&[0, 0, i as i32, 4]).unwrap() as i32;
-                    let end_x = *mv.get(&[0, 0, i as i32, 5]).unwrap() as i32;
-                    let end_y = *mv.get(&[0, 0, i as i32, 6]).unwrap() as i32;
-
-                    debug!(
-                        "Person detected at position: x=[{}, {}], y=[{}, {}]",
-                        start_x, end_x, start_y, end_y
-                    );
-
-                    let rect = Rect::new(
-                        start_x.max(0),
-                        start_y.max(0),
-                        (end_x - start_x).max(1),
-                        (end_y - start_y).max(1),
-                    );
-                    debug!("Person rectangle: {:?}", rect);
-
-                    self.detections
-                        .lock()
-                        .unwrap()
-                        .push(Detection::new(rect, *confidence));
-
-                    for (idx, point) in mv.iter().enumerate().take(5) {
-                        // Only log first 5 points to avoid spam
-                        debug!("Point {}: {:?}", idx, point);
-                    }
+            let detections = self.detect_objects(&rgb)?;
+            debug!("Tracking frame, detections: {}", detections.len());
+            for (rect, confidence) in detections {
+                if confidence > self.confidence {
+                    self.create_tracker(&rgb, rect)?;
                 }
             }
+
+            debug!("Created {} trackers", self.trackers.len());
+        } else {
+            self.update_trackers(&rgb)?;
+            debug!("Updating trackers");
         }
-
-        info!(
-            "Frame processing complete: found {} valid detections in {:?}",
-            valid_detections,
-            process_start.elapsed()
-        );
-
-        Ok(())
+		
+        self.draw_tracking_results(&mut rgb)?;
+        self.frame_count += 1;
+        Ok(rgb)
     }
 
     #[inline]
@@ -289,7 +174,9 @@ impl Net {
     fn create_tracker(&mut self, frame: &Mat, rect: Rect) -> Result<()> {
         let mut tracker = TrackerKCF::create(TrackerKCF_Params::default()?)?;
 
-        tracker.init(frame, rect)?;
+        tracker
+            .init(frame, rect)
+            .map_err(|e| Error::new(1, format!("Tracker init failed: {}", e)))?;
 
         self.trackers.push(Arc::new(Mutex::new(tracker)));
         Ok(())
@@ -301,7 +188,7 @@ impl Net {
 
         let mut temp_trackers = std::mem::take(&mut self.trackers);
 
-		// NEXT Nice place to add parallel processing		
+        // NEXT Nice place to add parallel processing
 
         for tracker in temp_trackers.drain(..) {
             let (success, bbox) = {
@@ -313,15 +200,22 @@ impl Net {
                     }
                 };
 
-				let mut bbox = Rect::default();
-				let success = locked.update(&frame, &mut bbox)?;
-				(success, bbox)
+                let mut bbox = Rect::default();
+                let success = match locked.update(&frame, &mut bbox) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        error!("Tracker update failed: {}", e);
+                        false
+                    }
+                };
+                (success, bbox)
             };
 
-			if success {
-				valid_trackers.push(tracker);
-				current_rects.push(bbox);
-			}
+            if success {
+                debug!("Succeded updating trackers");
+                valid_trackers.push(tracker);
+                current_rects.push(bbox);
+            }
         }
 
         self.trackers = valid_trackers;
@@ -329,12 +223,95 @@ impl Net {
         Ok(())
     }
 
-	fn draw_tracking_results(&self, frame: &mut Mat) -> Result<()> {
-		for rect in &self.tracked_rects {
-			imgproc::rectangle(frame, *rect, Scalar::new(0., 255., 0., 0.), 2, imgproc::LINE_8, 0)?;
-		}
-		Ok(())	
-	}
+    pub fn draw_tracking_results(&self, frame: &mut Mat) -> Result<()> {
+        debug!("drawing {:?} recs", self.tracked_rects);
+        for rect in &self.tracked_rects {
+            debug!("Drawing rect {:?}", rect);
+            imgproc::rectangle(
+                frame,
+                *rect,
+                Scalar::new(0., 255., 0., 0.),
+                2,
+                imgproc::LINE_8,
+                0,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn detect_objects(&mut self, frame: &Mat) -> Result<Vec<(Rect, f32)>> {
+        let mut detections = Vec::new();
+
+        let blob = dnn::blob_from_image(
+            frame,
+            1. / 127.5,
+            self.input_size,
+            Scalar::new(127.5, 127.5, 127.5, 0.),
+            true,
+            false,
+            CV_32F,
+        )?;
+
+        self.net.set_input_def(&blob);
+
+        // TODO: Find out if this is the right function to use
+        let output = self.net.forward_single("detection_out")?;
+        debug!("Ran net fwd");
+
+        let sizes = output.mat_size();
+        if sizes.len() != 4 {
+            bail!(
+                "Unexpected output size. Expected: 4 Revived: {}",
+                sizes.len()
+            );
+        }
+
+        let num_detections = sizes[2] as usize;
+        let mut clone = output.clone();
+        let mv = MatViewND::<f32>::new(&mut clone)?;
+        debug!("{:?} Raw net detections", 0..num_detections);
+
+        for i in 0..num_detections {
+            let confidence = mv.get(&[0, 0, i as i32, 2])?;
+            if *confidence > self.confidence {
+                let class_id = mv.get(&[0, 0, i as i32, 1])?;
+                debug!(
+                    "Class id: {}, Confidence: {}, Confidence threshold: {}",
+                    *class_id, *confidence, self.confidence
+                );
+                debug!("Len: {}", Self::CLASSES.len() as f32);
+                if *class_id <= Self::CLASSES.len() as f32
+                    && Self::CLASSES[*class_id as usize] == "person"
+                {
+                    let rect = self.get_bounding_box(&mv, i)?;
+                    debug!(
+                        "Found {}, Confidence: {}, Rect: {:?}",
+                        Self::CLASSES[*class_id as usize],
+                        *confidence,
+                        rect
+                    );
+                    detections.push((rect, *confidence));
+                }
+            }
+        }
+
+        Ok(detections)
+    }
+
+    fn get_bounding_box(&self, mv: &MatViewND<f32>, idx: usize) -> Result<Rect> {
+        let (w, h) = (self.input_size.width as f32, self.input_size.height as f32);
+        let start_x = (mv.get(&[0, 0, idx as i32, 3])? * w) as i32;
+        let start_y = (mv.get(&[0, 0, idx as i32, 4])? * h) as i32;
+        let end_x = (mv.get(&[0, 0, idx as i32, 5])? * w) as i32;
+        let end_y = (mv.get(&[0, 0, idx as i32, 6])? * h) as i32;
+
+        Ok(Rect::new(
+            start_x.max(0),
+            start_y.max(0),
+            (end_x - start_x).max(1),
+            (end_y - start_y).max(1),
+        ))
+    }
 }
 
 #[derive(Debug)]

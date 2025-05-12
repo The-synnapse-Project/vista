@@ -4,7 +4,7 @@ use cv::frame_metrics::FrameMetrics;
 use cv::{get_stream_camera, init_window};
 use log::logger::AdvancedLogger;
 use log::{LogLevel, critical, debug, error, info, warning};
-use opencv::core::{Mat, Point, Scalar};
+use opencv::core::{Mat, Point, Scalar, Size};
 use opencv::imgproc::{HersheyFonts, LineTypes};
 use opencv::videoio::VideoCaptureTrait;
 use opencv::{highgui, imgproc};
@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start_time = Instant::now();
     let args: Args = parse_args();
 
-    let log_level = if args.verbose {
+    let mut log_level = if args.verbose {
         LogLevel::Info
     } else {
         let log_level_env = var("SYN_LOG_LEVEL").unwrap_or_else(|_| "INFO".to_string());
@@ -35,6 +35,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ => LogLevel::Warning,
         }
     };
+
+    log_level = LogLevel::Debug;
 
     // Initialize the logger
     AdvancedLogger::init(log_level).unwrap_or_else(|e| {
@@ -72,6 +74,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut fps = FrameMetrics::new();
             info!("Starting main processing loop");
 
+            debug!("Loading neural network model...");
+            let mut net = match cv::net::Net::new(
+                &args.proto,
+                &args.model,
+                args.default_confidence,
+                args.step.into(),
+                Size::new(300, 300),
+            ) {
+                Ok(net) => net,
+                Err(e) => {
+                    error!("Failed to load neural network model: {}", e);
+                    return Err(e.into());
+                }
+            };
+
             let mut frame_count = 0;
             let processing_start = Instant::now();
 
@@ -92,98 +109,79 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 fps.update();
 
-                debug!("Loading neural network model...");
-                match cv::net::Net::new(&args.proto, &args.model) {
-                    Ok(mut net) => {
-                        match net.clone().preprocess_frame(&frame) {
-                            Ok(mut proc_frame) => {
-                                debug!("Adding performance metrics overlay to frame");
+                if let Err(e) = imgproc::put_text(
+                    &mut frame,
+                    &format!(
+                        "FPS: {:.1} FPS | FT {:.1}ms",
+                        fps.get_fps().round(),
+                        fps.get_last_frame_time().as_millis()
+                    ),
+                    Point::new(10, 30),
+                    HersheyFonts::FONT_HERSHEY_SIMPLEX.into(),
+                    0.6,
+                    Scalar::new(255.0, 255.0, 255.0, 0.0),
+                    1,
+                    LineTypes::LINE_AA.into(),
+                    false,
+                ) {
+                    warning!("Failed to add FPS text to frame: {}", e);
+                }
 
-                                // Add FPS counter
-                                if let Err(e) = imgproc::put_text(
-                                    &mut proc_frame,
-                                    &format!(
-                                        "FPS: {:.1} FPS | FT {:.1}ms",
-                                        fps.get_fps().round(),
-                                        fps.get_last_frame_time().as_millis()
-                                    ),
-                                    Point::new(10, 30),
-                                    HersheyFonts::FONT_HERSHEY_SIMPLEX.into(),
-                                    0.6,
-                                    Scalar::new(255.0, 255.0, 255.0, 0.0),
-                                    1,
-                                    LineTypes::LINE_AA.into(),
-                                    false,
-                                ) {
-                                    warning!("Failed to add FPS text to frame: {}", e);
-                                }
+                // Add more performance metrics
+                if let Err(e) = imgproc::put_text(
+                    &mut frame,
+                    &format!(
+                        "Avg: {:.1} | Min: {:.1} | Max: {:.1} FPS",
+                        fps.get_avg_fps(),
+                        fps.get_min_fps(),
+                        fps.get_max_fps()
+                    ),
+                    Point::new(10, 60),
+                    HersheyFonts::FONT_HERSHEY_SIMPLEX.into(),
+                    0.6,
+                    Scalar::new(255.0, 255.0, 255.0, 0.0),
+                    1,
+                    LineTypes::LINE_AA.into(),
+                    false,
+                ) {
+                    warning!("Failed to add extended metrics text: {}", e);
+                }
 
-                                // Add more performance metrics
-                                if let Err(e) = imgproc::put_text(
-                                    &mut proc_frame,
-                                    &format!(
-                                        "Avg: {:.1} | Min: {:.1} | Max: {:.1} FPS",
-                                        fps.get_avg_fps(),
-                                        fps.get_min_fps(),
-                                        fps.get_max_fps()
-                                    ),
-                                    Point::new(10, 60),
-                                    HersheyFonts::FONT_HERSHEY_SIMPLEX.into(),
-                                    0.6,
-                                    Scalar::new(255.0, 255.0, 255.0, 0.0),
-                                    1,
-                                    LineTypes::LINE_AA.into(),
-                                    false,
-                                ) {
-                                    warning!("Failed to add extended metrics text: {}", e);
-                                }
+                debug!("Processing frame with neural network");
 
-                                debug!("Processing frame with neural network");
-                                if let Err(e) = net.process_frame(&frame) {
-                                    error!("Failed to process frame: {}", e);
-                                }
-
-                                debug!("Displaying processed frame");
-                                if let Err(e) = highgui::imshow(win_name, &proc_frame) {
-                                    error!("Failed to display frame: {}", e);
-                                    break;
-                                }
-
-                                // Log detailed metrics periodically
-                                if frame_count % 100 == 0 {
-                                    let total_time = processing_start.elapsed();
-                                    info!(
-                                        "Processed {} frames in {:.1} seconds (avg {:.1} FPS, current {:.1} FPS)",
-                                        frame_count,
-                                        total_time.as_secs_f32(),
-                                        frame_count as f32 / total_time.as_secs_f32(),
-                                        fps.get_fps()
-                                    );
-                                }
-
-                                // Check for exit key
-                                let key = highgui::wait_key(10)?;
-                                if key >= 0 {
-                                    info!("User requested exit (key: {})", key);
-                                    break;
-                                }
-
-                                debug!(
-                                    "Frame #{} processed in {:?}",
-                                    frame_count,
-                                    frame_start.elapsed()
-                                );
-                            }
-                            Err(e) => {
-                                error!("Failed to preprocess frame: {}", e);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to load neural network model: {}", e);
+                if let Ok(proc_frame) = net.process_frame(&mut frame) {
+                    debug!("Displaying processed frame");
+                    if let Err(e) = highgui::imshow(win_name, &proc_frame) {
+                        error!("Failed to display frame: {}", e);
                         break;
                     }
+                } else {
+                    warning!("Error while processing frame");
                 }
+
+                if frame_count % 100 == 0 {
+                    let total_time = processing_start.elapsed();
+                    info!(
+                        "Processed {} frames in {:.1} seconds (avg {:.1} FPS, current {:.1} FPS)",
+                        frame_count,
+                        total_time.as_secs_f32(),
+                        frame_count as f32 / total_time.as_secs_f32(),
+                        fps.get_fps()
+                    );
+                }
+
+                // Check for exit key
+                let key = highgui::wait_key(10)?;
+                if key >= 0 {
+                    info!("User requested exit (key: {})", key);
+                    break;
+                }
+
+                debug!(
+                    "Frame #{} processed in {:?}",
+                    frame_count,
+                    frame_start.elapsed()
+                );
             }
 
             let total_runtime = start_time.elapsed();

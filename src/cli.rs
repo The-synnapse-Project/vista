@@ -23,7 +23,7 @@ pub struct Args {
     #[arg(short, long, default_value_t = 10)]
     pub step: u8,
 
-    //  Caffe 'deploy' prototxt file
+    ///  Caffe 'deploy' prototxt file
     #[arg(
         short,
         long,
