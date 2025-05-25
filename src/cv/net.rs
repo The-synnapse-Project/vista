@@ -1,4 +1,5 @@
 use crate::cv::mat_view::MatViewND;
+use crate::direction::Direction;
 use anyhow::{Result, bail};
 use clap::FromArgMatches;
 use log::{debug, error, info, warning};
@@ -13,17 +14,18 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::*;
+use crate::cv::centroid::CentroidTracker;
 
 #[derive(Debug, Clone)]
 pub struct Net {
     net: dnn::Net,
-    detections: Arc<Mutex<Vec<Detection>>>,
     trackers: Vec<Arc<Mutex<Ptr<TrackerKCF>>>>,
     confidence: f32,
     tracked_rects: Vec<Rect>,
     skip_frames: u32,
     input_size: Size,
     frame_count: u32,
+	centroid_tracker: CentroidTracker
 }
 
 impl Net {
@@ -57,12 +59,12 @@ impl Net {
         Ok(Self {
             net,
             trackers: Vec::new(),
-            detections: Arc::new(Mutex::new(Vec::new())),
             confidence,
             tracked_rects: Vec::new(),
             skip_frames,
             input_size,
             frame_count: 0,
+			centroid_tracker: CentroidTracker::new(3, 20.),
         })
     }
 
@@ -105,8 +107,9 @@ impl Net {
         debug!("Resizing frame to 500x500");
         match imgproc::resize(
             &frame,
+            // &rotated, // Not rotating for testing
             &mut resized,
-            Size::from((500, 500)),
+            self.input_size,
             0.,
             0.,
             imgproc::INTER_AREA,
@@ -125,50 +128,75 @@ impl Net {
         Ok(resized)
     }
 
-    pub fn process_frame(&mut self, frame: &Mat) -> Result<Mat> {
-        let mut rgb = self.preprocess_frame(&frame)?;
+    pub fn process_frame(&mut self, full_frame: &Mat) -> Result<Mat> {
+        // 1. Run detection/tracking on a downscaled copy
+        let small_size = self.input_size;
+        let mut small = Mat::default();
+        imgproc::resize(
+            full_frame,
+            &mut small,
+            small_size,
+            0.,
+            0.,
+            imgproc::INTER_AREA,
+        )?;
 
-        debug!(
-            "Frame: {}, Skip: {}, Curr: {}",
-            self.frame_count,
-            self.skip_frames,
-            self.frame_count % self.skip_frames
-        );
+        // 2. Detection or tracking on `small`
         if self.frame_count % self.skip_frames == 0 {
             self.trackers.clear();
             self.tracked_rects.clear();
-
-            let detections = self.detect_objects(&rgb)?;
-            debug!("Tracking frame, detections: {}", detections.len());
-            for (rect, confidence) in detections {
-                if confidence > self.confidence {
-                    self.create_tracker(&rgb, rect)?;
+            let detections = self.detect_objects(&small)?;
+            for (rect, conf) in detections {
+                if conf > self.confidence {
+                    self.create_tracker(&small, rect)?;
                 }
             }
-
-            debug!("Created {} trackers", self.trackers.len());
         } else {
-            self.update_trackers(&rgb)?;
-            debug!("Updating trackers");
+            self.update_trackers(&small)?;
         }
-		
-        self.draw_tracking_results(&mut rgb)?;
-        self.frame_count += 1;
-        Ok(rgb)
-    }
 
-    #[inline]
-    fn mat_pos_default(mat: &Mat, pos: &[i32]) -> f32 {
-        match mat.at_nd::<f32>(pos) {
-            Ok(ok) => *ok,
-            Err(_err) => {
-                debug!(
-                    "Failed to get mat position at {:?}, returning default 0.0",
-                    pos
-                );
-                0.
-            }
-        }
+		let mid_y = 250; // TODO: Set the zones through config
+
+		let rects = self.tracked_rects.clone();
+		let objects = self.centroid_tracker.update(&rects)?;
+
+		for (object_id, centroid) in &objects {
+			if let Some(obj) = self.centroid_tracker.objects.get_mut(object_id) {
+				if obj.centroids.len() >= 2 {
+					let prev_y = obj.centroids[obj.centroids.len() - 2].y;
+					let current_y = centroid.y;
+
+					let direction = if current_y < prev_y { Direction::Up } else { Direction::Down };
+
+					if !obj.counted {
+						if direction == Direction::Up && current_y < mid_y {
+							obj.counted = true;
+							info!("Obj: {} entered", obj.oid);
+						} else if direction == Direction::Down && current_y > mid_y {
+							obj.counted = true;
+							info!("Obj: {} exited", obj.oid);
+						}
+					}
+
+					obj.last_direction = Some(direction);
+				}
+
+				if obj.centroids.len() > 50 {
+					obj.centroids.remove(0);
+				}
+			};
+
+		}
+		
+
+        // 3. Prepare output image (clone full resolution)
+        let mut out = full_frame.clone();
+
+        // 4. Draw scaled tracking results
+        self.draw_tracking_results(&mut out)?;
+        self.frame_count += 1;
+
+        Ok(out)
     }
 
     fn create_tracker(&mut self, frame: &Mat, rect: Rect) -> Result<()> {
@@ -225,11 +253,23 @@ impl Net {
 
     pub fn draw_tracking_results(&self, frame: &mut Mat) -> Result<()> {
         debug!("drawing {:?} recs", self.tracked_rects);
+        // Compute scale factors from small (input_size) to full frame
+        let fx = frame.cols() as f32 / self.input_size.width as f32;
+        let fy = frame.rows() as f32 / self.input_size.height as f32;
+
+		let line = imgproc::line(frame, Point::new(0, 200), Point::new(frame.cols(), 200), Scalar::new(0., 255., 0., 0.), 2, imgproc::LINE_8, 0)?;
+
         for rect in &self.tracked_rects {
-            debug!("Drawing rect {:?}", rect);
+            debug!("Original rect (small coords): {:?}", rect);
+            let x = (rect.x as f32 * fx).round() as i32;
+            let y = (rect.y as f32 * fy).round() as i32;
+            let w = (rect.width as f32 * fx).round() as i32;
+            let h = (rect.height as f32 * fy).round() as i32;
+            let scaled = Rect::new(x, y, w, h);
+            debug!("Drawing scaled rect: {:?}", scaled);
             imgproc::rectangle(
                 frame,
-                *rect,
+                scaled,
                 Scalar::new(0., 255., 0., 0.),
                 2,
                 imgproc::LINE_8,

@@ -8,7 +8,9 @@ use opencv::core::{Mat, Point, Scalar, Size};
 use opencv::imgproc::{HersheyFonts, LineTypes};
 use opencv::videoio::VideoCaptureTrait;
 use opencv::{highgui, imgproc};
+use recorder::{SyncronizedRecorder, SyncronizedRecorderConfig};
 use std::env::var;
+use std::path::PathBuf;
 use std::time::Instant;
 
 #[allow(unused)]
@@ -17,7 +19,10 @@ mod cli;
 mod conf;
 #[allow(unused)]
 mod cv;
-// mod db;
+pub mod direction;
+mod proc;
+pub mod recorder;
+mod rfid;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start_time = Instant::now();
@@ -36,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    log_level = LogLevel::Debug;
+    // log_level = LogLevel::Debug;
 
     // Initialize the logger
     AdvancedLogger::init(log_level).unwrap_or_else(|e| {
@@ -58,6 +63,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err(e.into());
         }
     };
+
+    if args.write_data {
+        let recorder_config = SyncronizedRecorderConfig {
+            camera_path: PathBuf::from("/dev/video0"),
+            rfid_path: PathBuf::from("/dev/ttyACM0"),
+            output_video: PathBuf::from("video.avi"),
+            output_video_timestamps: PathBuf::from("vid_stamps.csv"),
+            output_detections: PathBuf::from("detections_stamps.csv"),
+            duty_cycle: 500,
+        };
+
+		let recorder = SyncronizedRecorder::new(recorder_config);
+		let runtime = tokio::runtime::Runtime::new()?;
+
+		
+		runtime.block_on(recorder.start())?;
+    }
 
     debug!("Initializing display window");
     let win_name = init_window();

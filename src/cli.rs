@@ -13,7 +13,7 @@ pub struct Args {
 
     /// Output file for processed data
     #[arg(short, long)]
-    pub output: Option<String>,
+    pub write_data: bool,
 
     /// Default confidence value for detections
     #[arg(short, long, default_value_t = 0.1)]

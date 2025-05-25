@@ -179,13 +179,21 @@
         # Extra inputs can be added here; cargo and rustc are provided by default.
         packages = with pkgs; [
           # pkgs.ripgrep
+          gdb
           alsa-lib
           speechd
           openssl
           glib
           ffmpeg
           libva
-          opencv
+          ((opencv.overrideAttrs (old: {
+              cmakeFlags = old.cmakeFlags ++ [(lib.cmakeFeature "CMAKE_CXX_STANDARD" "17")];
+            })).override {
+              enableGtk3 = true;
+              enableGStreamer = true;
+              enableGtk2 = true;
+              enableContrib = true;
+            })
           pkg-config
           clang
           protobuf_21
