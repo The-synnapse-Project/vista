@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use csv::{Writer, WriterBuilder};
-use log::{debug, info};
+use log::{debug, info, warning};
 use opencv::{
     core::{Mat, MatTraitConst, Size},
     videoio::{
@@ -8,6 +8,7 @@ use opencv::{
     },
 };
 use std::{
+    env,
     path::PathBuf,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -144,21 +145,33 @@ impl SyncronizedRecorder {
                         break;
                     }
 
-                    let mut file = OpenOptions::new().read(true).write(true).open(&config.rfid_path).await?;
+                    match env::var("LEYENDO") {
+                        Ok(val) if val == "1" => {
+                            let mut file = OpenOptions::new().read(true).write(true).open(&config.rfid_path).await?;
 
-                    file.read_to_string(&mut buffer).await?;
-                    if !buffer.is_empty() {
-                        // info!("SERIAL: Read {} lines", buffer.lines().max());
-                        for line in buffer.lines() {
-                            let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+                            file.read_to_string(&mut buffer).await?;
+                            if !buffer.is_empty() {
+                                // info!("SERIAL: Read {} lines", buffer.lines().max());
+                                for line in buffer.lines() {
+                                    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
 
-                            det_writer.write_record(&[timestamp.to_string(), line.trim().to_string()])?;
-                        }
-                        det_writer.flush()?;
+                                    det_writer.write_record(&[timestamp.to_string(), line.trim().to_string()])?;
+                                }
+                                det_writer.flush()?;
 
-                        file.seek(std::io::SeekFrom::Start(0)).await?;
-                        file.set_len(0).await?;
-                        buffer.clear();
+                                file.seek(std::io::SeekFrom::Start(0)).await?;
+                                file.set_len(0).await?;
+                                buffer.clear();
+                            }
+                        },
+                        Ok(other) => {
+                            debug!("LEYENDO = {}, skipping read", other);
+                            continue;
+                        },
+                        Err(e) => {
+                            warning!("Error {}", e);
+                            continue
+                        },
                     }
                 }
             }
