@@ -1,3 +1,4 @@
+use crate::cv::centroid::CentroidTracker;
 use crate::cv::mat_view::MatViewND;
 use crate::direction::Direction;
 use anyhow::{Result, bail};
@@ -14,7 +15,6 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::*;
-use crate::cv::centroid::CentroidTracker;
 
 #[derive(Debug, Clone)]
 pub struct Net {
@@ -25,7 +25,7 @@ pub struct Net {
     skip_frames: u32,
     input_size: Size,
     frame_count: u32,
-	centroid_tracker: CentroidTracker
+    centroid_tracker: CentroidTracker,
 }
 
 impl Net {
@@ -64,7 +64,7 @@ impl Net {
             skip_frames,
             input_size,
             frame_count: 0,
-			centroid_tracker: CentroidTracker::new(3, 20.),
+            centroid_tracker: CentroidTracker::new(3, 20.),
         })
     }
 
@@ -155,39 +155,41 @@ impl Net {
             self.update_trackers(&small)?;
         }
 
-		let mid_y = 250; // TODO: Set the zones through config
+        let mid_y = 250; // TODO: Set the zones through config
 
-		let rects = self.tracked_rects.clone();
-		let objects = self.centroid_tracker.update(&rects)?;
+        let rects = self.tracked_rects.clone();
+        let objects = self.centroid_tracker.update(&rects)?;
 
-		for (object_id, centroid) in &objects {
-			if let Some(obj) = self.centroid_tracker.objects.get_mut(object_id) {
-				if obj.centroids.len() >= 2 {
-					let prev_y = obj.centroids[obj.centroids.len() - 2].y;
-					let current_y = centroid.y;
+        for (object_id, centroid) in &objects {
+            if let Some(obj) = self.centroid_tracker.objects.get_mut(object_id) {
+                if obj.centroids.len() >= 2 {
+                    let prev_y = obj.centroids[obj.centroids.len() - 2].y;
+                    let current_y = centroid.y;
 
-					let direction = if current_y < prev_y { Direction::Up } else { Direction::Down };
+                    let direction = if current_y < prev_y {
+                        Direction::Up
+                    } else {
+                        Direction::Down
+                    };
 
-					if !obj.counted {
-						if direction == Direction::Up && current_y < mid_y {
-							obj.counted = true;
-							info!("Obj: {} entered", obj.oid);
-						} else if direction == Direction::Down && current_y > mid_y {
-							obj.counted = true;
-							info!("Obj: {} exited", obj.oid);
-						}
-					}
+                    if !obj.counted {
+                        if direction == Direction::Up && current_y < mid_y {
+                            obj.counted = true;
+                            info!("Obj: {} entered", obj.oid);
+                        } else if direction == Direction::Down && current_y > mid_y {
+                            obj.counted = true;
+                            info!("Obj: {} exited", obj.oid);
+                        }
+                    }
 
-					obj.last_direction = Some(direction);
-				}
+                    obj.last_direction = Some(direction);
+                }
 
-				if obj.centroids.len() > 50 {
-					obj.centroids.remove(0);
-				}
-			};
-
-		}
-		
+                if obj.centroids.len() > 50 {
+                    obj.centroids.remove(0);
+                }
+            };
+        }
 
         // 3. Prepare output image (clone full resolution)
         let mut out = full_frame.clone();
@@ -257,7 +259,15 @@ impl Net {
         let fx = frame.cols() as f32 / self.input_size.width as f32;
         let fy = frame.rows() as f32 / self.input_size.height as f32;
 
-		let line = imgproc::line(frame, Point::new(0, 200), Point::new(frame.cols(), 200), Scalar::new(0., 255., 0., 0.), 2, imgproc::LINE_8, 0)?;
+        let line = imgproc::line(
+            frame,
+            Point::new(0, 200),
+            Point::new(frame.cols(), 200),
+            Scalar::new(0., 255., 0., 0.),
+            2,
+            imgproc::LINE_8,
+            0,
+        )?;
 
         for rect in &self.tracked_rects {
             debug!("Original rect (small coords): {:?}", rect);

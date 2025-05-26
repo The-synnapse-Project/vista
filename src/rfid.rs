@@ -102,5 +102,3 @@ async fn process_spool(
         sleep(line_delay).await;
     }
 }
-
-

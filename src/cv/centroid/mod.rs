@@ -2,7 +2,10 @@ use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
 use opencv::core::Rect;
-use pathfinding::{matrix::Matrix, prelude::{kuhn_munkres, kuhn_munkres_min}};
+use pathfinding::{
+    matrix::Matrix,
+    prelude::{kuhn_munkres, kuhn_munkres_min},
+};
 
 use crate::direction::Direction;
 
@@ -68,11 +71,11 @@ impl CentroidTracker {
         // 1. Create cost matrix with max_distance check
         let mut cost_matrix = vec![vec![0.0; input.len()]; self.objects.len()];
         let oids: Vec<u32> = self.objects.keys().copied().collect();
-        
+
         for (i, oid) in oids.iter().enumerate() {
             let obj = self.objects.get(oid).unwrap();
             let last_centroid = obj.centroids.last().unwrap();
-            
+
             for (j, input_centroid) in input.iter().enumerate() {
                 let distance = last_centroid.distance_to(input_centroid.clone());
                 cost_matrix[i][j] = if distance <= self.max_distance {
@@ -92,7 +95,7 @@ impl CentroidTracker {
                         if d > self.max_distance {
                             i32::MAX
                         } else {
-                            (d * 1000.0).round() as i32  // Preserve 3 decimal places
+                            (d * 1000.0).round() as i32 // Preserve 3 decimal places
                         }
                     })
                     .collect()
@@ -131,7 +134,7 @@ impl CentroidTracker {
             if !matched_oids.contains(oid) {
                 let entry = self.disapeared.entry(*oid).or_insert(0);
                 *entry += 1;
-                
+
                 if *entry > self.max_disapeared {
                     self.deregister(*oid);
                 }

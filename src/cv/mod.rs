@@ -1,7 +1,7 @@
+pub mod centroid;
 pub mod frame_metrics;
 pub mod mat_view;
 pub mod net;
-pub mod centroid;
 
 use log::{debug, info, warning};
 use opencv::highgui;

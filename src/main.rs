@@ -74,11 +74,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             duty_cycle: 500,
         };
 
-		let recorder = SyncronizedRecorder::new(recorder_config);
-		let runtime = tokio::runtime::Runtime::new()?;
+        let recorder = SyncronizedRecorder::new(recorder_config);
+        let runtime = tokio::runtime::Runtime::new()?;
 
-		
-		runtime.block_on(recorder.start())?;
+        runtime.block_on(recorder.start())?;
     }
 
     debug!("Initializing display window");
