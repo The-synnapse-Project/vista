@@ -9,5 +9,5 @@ colored = "3.0.0"
 dirs = "6.0.0"
 sevenz-rust2 = { version = "0.13.1", features = ["compress"] }
 
-[lints.clippy]
+[lints.rust]
 unused_doc_comments = "allow"

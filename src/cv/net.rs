@@ -242,7 +242,7 @@ impl Net {
             };
 
             if success {
-                debug!("Succeded updating trackers");
+                debug!("Succeeded updating trackers");
                 valid_trackers.push(tracker);
                 current_rects.push(bbox);
             }
@@ -259,7 +259,7 @@ impl Net {
         let fx = frame.cols() as f32 / self.input_size.width as f32;
         let fy = frame.rows() as f32 / self.input_size.height as f32;
 
-        let line = imgproc::line(
+        imgproc::line(
             frame,
             Point::new(0, 200),
             Point::new(frame.cols(), 200),

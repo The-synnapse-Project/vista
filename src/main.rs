@@ -8,7 +8,7 @@ use opencv::core::{Mat, Point, Scalar, Size};
 use opencv::imgproc::{HersheyFonts, LineTypes};
 use opencv::videoio::VideoCaptureTrait;
 use opencv::{highgui, imgproc};
-use recorder::{SyncronizedRecorder, SyncronizedRecorderConfig};
+use recorder::{SynchronizedRecorder, SynchronizedRecorderConfig};
 use std::env::var;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -22,13 +22,14 @@ mod cv;
 pub mod direction;
 mod proc;
 pub mod recorder;
+#[allow(dead_code)]
 mod rfid;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start_time = Instant::now();
     let args: Args = parse_args();
 
-    let mut log_level = if args.verbose {
+    let log_level = if args.verbose {
         LogLevel::Info
     } else {
         let log_level_env = var("SYN_LOG_LEVEL").unwrap_or_else(|_| "INFO".to_string());
@@ -65,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     if args.write_data {
-        let recorder_config = SyncronizedRecorderConfig {
+        let recorder_config = SynchronizedRecorderConfig {
             camera_path: PathBuf::from("/dev/video0"),
             rfid_path: PathBuf::from("/run/modelRF_Spool"),
             output_video: PathBuf::from("video.avi"),
@@ -74,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             duty_cycle: 500,
         };
 
-        let recorder = SyncronizedRecorder::new(recorder_config);
+        let recorder = SynchronizedRecorder::new(recorder_config);
         let runtime = tokio::runtime::Runtime::new()?;
 
         runtime.block_on(recorder.start())?;
@@ -170,7 +171,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 debug!("Processing frame with neural network");
 
-                if let Ok(proc_frame) = net.process_frame(&mut frame) {
+                if let Ok(proc_frame) = net.process_frame(&frame) {
                     debug!("Displaying processed frame");
                     if let Err(e) = highgui::imshow(win_name, &proc_frame) {
                         error!("Failed to display frame: {}", e);

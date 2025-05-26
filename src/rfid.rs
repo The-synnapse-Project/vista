@@ -1,11 +1,8 @@
-use anyhow::Result;
 use log::{error, info};
 use regex::Regex;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    fs::{File, read_to_string},
-    io::Read,
-    path::{Path, PathBuf},
+    collections::VecDeque,
+    path::PathBuf,
     sync::{Arc, RwLock},
     time::{Duration, Instant},
 };

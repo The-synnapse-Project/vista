@@ -13,7 +13,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    fs::{File, OpenOptions},
+    fs::OpenOptions,
     io::{AsyncReadExt, AsyncSeekExt},
     signal,
     sync::watch,
@@ -22,7 +22,7 @@ use tokio::{
 };
 
 #[derive(Debug, Clone)]
-pub struct SyncronizedRecorderConfig {
+pub struct SynchronizedRecorderConfig {
     pub camera_path: PathBuf,
     pub rfid_path: PathBuf,
     pub output_video: PathBuf,
@@ -31,12 +31,12 @@ pub struct SyncronizedRecorderConfig {
     pub duty_cycle: u64,
 }
 
-pub struct SyncronizedRecorder {
-    config: SyncronizedRecorderConfig,
+pub struct SynchronizedRecorder {
+    config: SynchronizedRecorderConfig,
 }
 
-impl SyncronizedRecorder {
-    pub fn new(config: SyncronizedRecorderConfig) -> Self {
+impl SynchronizedRecorder {
+    pub fn new(config: SynchronizedRecorderConfig) -> Self {
         Self { config }
     }
 
@@ -76,7 +76,7 @@ impl SyncronizedRecorder {
         Ok(())
     }
 
-    fn video_task(config: SyncronizedRecorderConfig, shutdown: watch::Sender<bool>) -> Result<()> {
+    fn video_task(config: SynchronizedRecorderConfig, shutdown: watch::Sender<bool>) -> Result<()> {
         let camera_path = config.camera_path.to_str().context("Invalid Camera Path")?;
 
         let mut camera =
@@ -96,7 +96,7 @@ impl SyncronizedRecorder {
         )?;
 
         let mut ts_writer = Writer::from_path(&config.output_video_timestamps)?;
-        ts_writer.write_record(&["frame_number", "timestamp"])?;
+        ts_writer.write_record(["frame_number", "timestamp"])?;
 
         let mut frame = Mat::default();
         let mut frame_count = 0;
@@ -126,13 +126,13 @@ impl SyncronizedRecorder {
     }
 
     async fn serial_task(
-        config: SyncronizedRecorderConfig,
+        config: SynchronizedRecorderConfig,
         shutdown: watch::Sender<bool>,
     ) -> Result<()> {
         let mut det_writer = WriterBuilder::new()
             .quote_style(csv::QuoteStyle::Always)
             .from_path(&config.output_detections)?;
-        det_writer.write_record(&["timestamp", "data"])?;
+        det_writer.write_record(["timestamp", "data"])?;
 
         let mut interval = interval(Duration::from_millis(config.duty_cycle));
         let mut buffer = String::new();
