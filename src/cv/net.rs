@@ -11,6 +11,7 @@ use opencv::dnn::NetTrait;
 use opencv::imgproc;
 use opencv::tracking::*;
 use opencv::video::TrackerTrait;
+use rayon::prelude::*;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -93,18 +94,25 @@ impl Net {
     ];
 
     pub fn preprocess_frame(&self, frame: &Mat) -> opencv::Result<Mat> {
+        #[cfg(debug_assertions)]
         debug!("Preprocessing frame: starting transformation pipeline");
+
+        #[cfg(debug_assertions)]
         let start_time = Instant::now();
 
         let mut rotated = Mat::default();
+        #[cfg(debug_assertions)]
         debug!("Rotating frame by 180 degrees");
+
         if let Err(e) = rotate(&frame, &mut rotated, ROTATE_180) {
             error!("Failed to rotate frame: {}", e);
             return Err(e);
         }
 
         let mut resized = Mat::default();
+        #[cfg(debug_assertions)]
         debug!("Resizing frame to 500x500");
+
         match imgproc::resize(
             &frame,
             // &rotated, // Not rotating for testing
@@ -121,6 +129,7 @@ impl Net {
             }
         }
 
+        #[cfg(debug_assertions)]
         debug!(
             "Frame preprocessing completed in {:?}",
             start_time.elapsed()
@@ -213,35 +222,44 @@ impl Net {
     }
 
     fn update_trackers(&mut self, frame: &Mat) -> Result<()> {
-        let mut valid_trackers: Vec<Arc<Mutex<Ptr<TrackerKCF>>>> = Vec::new();
+        let temp_trackers = std::mem::take(&mut self.trackers);
+
+        // Parallel processing of tracker updates
+        let results: Vec<(bool, Rect, Arc<Mutex<Ptr<TrackerKCF>>>)> = temp_trackers
+            .into_par_iter()
+            .map(|tracker| {
+                let (success, bbox) = {
+                    let mut locked = match tracker.lock() {
+                        Ok(guard) => guard,
+                        Err(poisoned) => {
+                            #[cfg(debug_assertions)]
+                            debug!("Poisoned tracker");
+                            poisoned.into_inner()
+                        }
+                    };
+
+                    let mut bbox = Rect::default();
+                    let success = match locked.update(&frame, &mut bbox) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            error!("Tracker update failed: {}", e);
+                            false
+                        }
+                    };
+                    (success, bbox)
+                };
+
+                (success, bbox, tracker)
+            })
+            .collect();
+
+        // Filter successful trackers
+        let mut valid_trackers = Vec::new();
         let mut current_rects = Vec::new();
 
-        let mut temp_trackers = std::mem::take(&mut self.trackers);
-
-        // NEXT Nice place to add parallel processing
-
-        for tracker in temp_trackers.drain(..) {
-            let (success, bbox) = {
-                let mut locked = match tracker.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => {
-                        debug!("Poisoned tracker");
-                        poisoned.into_inner() //  MAYBE Check if we should recover if it's poisoned
-                    }
-                };
-
-                let mut bbox = Rect::default();
-                let success = match locked.update(&frame, &mut bbox) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        error!("Tracker update failed: {}", e);
-                        false
-                    }
-                };
-                (success, bbox)
-            };
-
+        for (success, bbox, tracker) in results {
             if success {
+                #[cfg(debug_assertions)]
                 debug!("Succeeded updating trackers");
                 valid_trackers.push(tracker);
                 current_rects.push(bbox);
@@ -290,7 +308,7 @@ impl Net {
     }
 
     fn detect_objects(&mut self, frame: &Mat) -> Result<Vec<(Rect, f32)>> {
-        let mut detections = Vec::new();
+        let mut detections: Vec<(Rect, f32)> = Vec::with_capacity(100); // Pre-allocate with reasonable capacity
 
         let blob = dnn::blob_from_image(
             frame,
@@ -311,7 +329,7 @@ impl Net {
         let sizes = output.mat_size();
         if sizes.len() != 4 {
             bail!(
-                "Unexpected output size. Expected: 4 Revived: {}",
+                "Unexpected output size. Expected: 4 Received: {}",
                 sizes.len()
             );
         }
@@ -319,31 +337,45 @@ impl Net {
         let num_detections = sizes[2] as usize;
         let mut clone = output.clone();
         let mv = MatViewND::<f32>::new(&mut clone)?;
+        #[cfg(debug_assertions)]
         debug!("{:?} Raw net detections", 0..num_detections);
 
-        for i in 0..num_detections {
-            let confidence = mv.get(&[0, 0, i as i32, 2])?;
-            if *confidence > self.confidence {
-                let class_id = mv.get(&[0, 0, i as i32, 1])?;
-                debug!(
-                    "Class id: {}, Confidence: {}, Confidence threshold: {}",
-                    *class_id, *confidence, self.confidence
-                );
-                debug!("Len: {}", Self::CLASSES.len() as f32);
-                if *class_id <= Self::CLASSES.len() as f32
+        // Parallel processing of detections
+        let detections: Vec<(Rect, f32)> = (0..num_detections)
+            .into_par_iter()
+            .filter_map(|i| {
+                // Get confidence and class_id safely
+                let confidence = mv.get(&[0, 0, i as i32, 2]).ok()?;
+                if *confidence <= self.confidence {
+                    return None;
+                }
+
+                let class_id = mv.get(&[0, 0, i as i32, 1]).ok()?;
+
+                // Check for person class
+                if (*class_id as usize) < Self::CLASSES.len()
                     && Self::CLASSES[*class_id as usize] == "person"
                 {
-                    let rect = self.get_bounding_box(&mv, i)?;
-                    debug!(
-                        "Found {}, Confidence: {}, Rect: {:?}",
-                        Self::CLASSES[*class_id as usize],
-                        *confidence,
-                        rect
+                    // Calculate bounding box inline for better performance
+                    let (w, h) = (self.input_size.width as f32, self.input_size.height as f32);
+                    let start_x = mv.get(&[0, 0, i as i32, 3]).ok().map(|v| (*v * w) as i32)?;
+                    let start_y = mv.get(&[0, 0, i as i32, 4]).ok().map(|v| (*v * h) as i32)?;
+                    let end_x = mv.get(&[0, 0, i as i32, 5]).ok().map(|v| (*v * w) as i32)?;
+                    let end_y = mv.get(&[0, 0, i as i32, 6]).ok().map(|v| (*v * h) as i32)?;
+
+                    let rect = Rect::new(
+                        start_x.max(0),
+                        start_y.max(0),
+                        (end_x - start_x).max(1),
+                        (end_y - start_y).max(1),
                     );
-                    detections.push((rect, *confidence));
+
+                    Some((rect, *confidence))
+                } else {
+                    None
                 }
-            }
-        }
+            })
+            .collect();
 
         Ok(detections)
     }

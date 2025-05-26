@@ -3,6 +3,7 @@ use log::{error, info};
 use opencv::core::{
     CV_32FC2, DataType, Mat, MatTrait, MatTraitConst, MatTraitConstManual, MatTraitManual, Scalar_,
 };
+use rayon::prelude::*;
 
 pub struct MatViewND<'a, T> {
     dims: Vec<i32>,
@@ -28,8 +29,30 @@ impl<'a, T: DataType> MatViewND<'a, T> {
         })
     }
 
-    /// Safe access with bounds checking
+    /// Safe access with bounds checking (optimized)
     pub fn get(&self, indices: &[i32]) -> Result<&T> {
+        // Fast path for common case of 4D tensor access
+        if indices.len() == 4 && self.dims.len() == 4 {
+            let idx0 = indices[0] as usize;
+            let idx1 = indices[1] as usize;
+            let idx2 = indices[2] as usize;
+            let idx3 = indices[3] as usize;
+
+            // Bounds check
+            if idx0 < self.dims[0] as usize
+                && idx1 < self.dims[1] as usize
+                && idx2 < self.dims[2] as usize
+                && idx3 < self.dims[3] as usize
+            {
+                let offset = idx0 * self.strides[0]
+                    + idx1 * self.strides[1]
+                    + idx2 * self.strides[2]
+                    + idx3 * self.strides[3];
+                return self.data.get(offset).context("Index out of bounds");
+            }
+        }
+
+        // Fallback to general case
         self.validate_indices(indices)?;
         let offset = self.calculate_offset(indices);
         self.data.get(offset).context("Index out of bounds")
@@ -51,23 +74,25 @@ impl<'a, T: DataType> MatViewND<'a, T> {
             ));
         }
 
-        for (i, &idx) in indices.iter().enumerate() {
+        indices.iter().enumerate().try_for_each(|(i, &idx)| {
             if idx < 0 || idx >= self.dims[i] {
-                return Err(anyhow!(
+                Err(anyhow!(
                     "Index {} out of bounds for dimension {} (0..{})",
                     idx,
                     i,
                     self.dims[i] - 1
-                ));
+                ))
+            } else {
+                Ok(())
             }
-        }
+        })?;
 
         Ok(())
     }
 
     fn calculate_offset(&self, indices: &[i32]) -> usize {
         indices
-            .iter()
+            .par_iter()
             .zip(&self.strides)
             .map(|(&idx, &stride)| idx as usize * stride)
             .sum()

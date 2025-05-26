@@ -11,6 +11,7 @@ use opencv::{highgui, imgproc};
 use recorder::{SynchronizedRecorder, SynchronizedRecorderConfig};
 use std::env::var;
 use std::path::PathBuf;
+#[cfg(debug_assertions)]
 use std::time::Instant;
 
 #[allow(unused)]
@@ -26,6 +27,7 @@ pub mod recorder;
 mod rfid;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(debug_assertions)]
     let start_time = Instant::now();
     let args: Args = parse_args();
 
@@ -111,18 +113,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
+            #[cfg(debug_assertions)]
             let mut frame_count = 0;
+            #[cfg(debug_assertions)]
             let processing_start = Instant::now();
 
-            loop {
-                let frame_start = Instant::now();
-                frame_count += 1;
+            let mut frame = Mat::default();
 
-                let mut frame = Mat::default();
+            let mut fps_text = String::with_capacity(64);
+            let mut metrics_text = String::with_capacity(64);
+
+            loop {
+                #[cfg(debug_assertions)]
+                let frame_start = Instant::now();
+                #[cfg(debug_assertions)]
+                {
+                    frame_count += 1;
+                }
+                #[cfg(debug_assertions)]
                 debug!("Capturing frame #{}...", frame_count);
 
                 match stream.read(&mut frame) {
-                    Ok(_) => debug!("Frame captured successfully"),
+                    Ok(_) => {
+                        #[cfg(debug_assertions)]
+                        debug!("Frame captured successfully");
+                    }
                     Err(e) => {
                         error!("Failed to read from camera: {}", e);
                         break;
@@ -131,13 +146,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 fps.update();
 
+                fps_text.clear();
+                fps_text.push_str(&format!(
+                    "FPS: {:.1} FPS | FT {:.1}ms",
+                    fps.get_fps().round(),
+                    fps.get_last_frame_time().as_millis()
+                ));
+
                 if let Err(e) = imgproc::put_text(
                     &mut frame,
-                    &format!(
-                        "FPS: {:.1} FPS | FT {:.1}ms",
-                        fps.get_fps().round(),
-                        fps.get_last_frame_time().as_millis()
-                    ),
+                    &fps_text,
                     Point::new(10, 30),
                     HersheyFonts::FONT_HERSHEY_SIMPLEX.into(),
                     0.6,
@@ -149,15 +167,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     warning!("Failed to add FPS text to frame: {}", e);
                 }
 
-                // Add more performance metrics
+                metrics_text.clear();
+                metrics_text.push_str(&format!(
+                    "Avg: {:.1} | Min: {:.1} | Max: {:.1} FPS",
+                    fps.get_avg_fps(),
+                    fps.get_min_fps(),
+                    fps.get_max_fps()
+                ));
+
                 if let Err(e) = imgproc::put_text(
                     &mut frame,
-                    &format!(
-                        "Avg: {:.1} | Min: {:.1} | Max: {:.1} FPS",
-                        fps.get_avg_fps(),
-                        fps.get_min_fps(),
-                        fps.get_max_fps()
-                    ),
+                    &metrics_text,
                     Point::new(10, 60),
                     HersheyFonts::FONT_HERSHEY_SIMPLEX.into(),
                     0.6,
@@ -169,10 +189,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     warning!("Failed to add extended metrics text: {}", e);
                 }
 
+                #[cfg(debug_assertions)]
                 debug!("Processing frame with neural network");
 
                 if let Ok(proc_frame) = net.process_frame(&frame) {
+                    #[cfg(debug_assertions)]
                     debug!("Displaying processed frame");
+
                     if let Err(e) = highgui::imshow(win_name, &proc_frame) {
                         error!("Failed to display frame: {}", e);
                         break;
@@ -180,7 +203,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     warning!("Error while processing frame");
                 }
-
+                #[cfg(debug_assertions)]
                 if frame_count % 100 == 0 {
                     let total_time = processing_start.elapsed();
                     info!(
@@ -199,6 +222,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     break;
                 }
 
+                #[cfg(debug_assertions)]
                 debug!(
                     "Frame #{} processed in {:?}",
                     frame_count,
@@ -206,14 +230,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
 
-            let total_runtime = start_time.elapsed();
-            info!("Application shutting down after {} frames", frame_count);
-            info!("Total runtime: {:.2} seconds", total_runtime.as_secs_f32());
-            info!(
-                "Average performance: {:.1} FPS",
-                frame_count as f32 / total_runtime.as_secs_f32()
-            );
-
+            #[cfg(debug_assertions)]
+            {
+                let total_runtime = start_time.elapsed();
+                info!("Application shutting down after {} frames", frame_count);
+                info!("Total runtime: {:.2} seconds", total_runtime.as_secs_f32());
+                info!(
+                    "Average performance: {:.1} FPS",
+                    frame_count as f32 / total_runtime.as_secs_f32()
+                );
+            }
             debug!("Destroying all windows");
             if let Err(e) = highgui::destroy_all_windows() {
                 warning!("Failed to clean up windows: {}", e);
