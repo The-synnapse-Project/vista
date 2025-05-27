@@ -17,6 +17,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::*;
 
+type TrackerResult = (bool, Rect, Arc<Mutex<Ptr<TrackerKCF>>>);
+
 #[derive(Debug, Clone)]
 pub struct Net {
     net: dnn::Net,
@@ -222,10 +224,10 @@ impl Net {
     }
 
     fn update_trackers(&mut self, frame: &Mat) -> Result<()> {
-        let temp_trackers = std::mem::take(&mut self.trackers);
-
         // Parallel processing of tracker updates
-        let results: Vec<(bool, Rect, Arc<Mutex<Ptr<TrackerKCF>>>)> = temp_trackers
+        let temp_trackers = std::mem::take(&mut self.trackers);
+        // Parallel processing of tracker updates
+        let results: Vec<TrackerResult> = temp_trackers
             .into_par_iter()
             .map(|tracker| {
                 let (success, bbox) = {
