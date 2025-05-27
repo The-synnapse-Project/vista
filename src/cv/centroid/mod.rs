@@ -78,19 +78,20 @@ impl CentroidTracker {
         let mut cost_matrix = vec![vec![0.0; input.len()]; self.objects.len()];
         let oids: Vec<u32> = self.objects.keys().copied().collect();
 
-        for (i, oid) in oids.iter().enumerate() {
-            let obj = self.objects.get(oid).unwrap();
+        cost_matrix.par_iter_mut().enumerate().for_each(|(i, row)| {
+            let oid = oids[i];
+            let obj = self.objects.get(&oid).unwrap();
             let last_centroid = obj.centroids.last().unwrap();
 
-            for (j, input_centroid) in input.iter().enumerate() {
-                let distance = last_centroid.distance_to(input_centroid.clone());
-                cost_matrix[i][j] = if distance <= self.max_distance {
+            row.par_iter_mut().enumerate().for_each(|(j, cost)| {
+                let distance = last_centroid.distance_to(input[j].clone());
+                *cost = if distance <= self.max_distance {
                     distance
                 } else {
                     f32::INFINITY
                 };
-            }
-        }
+            });
+        });
 
         // 2. Convert to integer matrix with scaling and inversion for minimization
         let int_matrix: Vec<Vec<i32>> = cost_matrix
