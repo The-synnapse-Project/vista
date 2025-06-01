@@ -25,6 +25,8 @@ mod proc;
 pub mod recorder;
 #[allow(dead_code)]
 mod rfid;
+mod auth;
+mod api;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(debug_assertions)]
