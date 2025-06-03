@@ -62,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("Configuration loaded successfully");
             debug!("Config: {:?}", config);
             config
-        }
+m        }
         Err(e) => {
             error!("Failed to load configuration: {}", e);
             return Err(e.into());

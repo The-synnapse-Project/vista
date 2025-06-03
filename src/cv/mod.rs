@@ -6,6 +6,9 @@ pub mod net;
 use log::{debug, info, warning};
 use opencv::highgui;
 use opencv::videoio::{CAP_ANY, VideoCapture};
+use tokio::time::Instant;
+
+use crate::direction::Direction;
 
 pub fn get_stream_camera(file: &str) -> Result<VideoCapture, opencv::Error> {
     info!("Opening camera stream");
@@ -33,4 +36,22 @@ pub fn init_window() -> &'static str {
     }
 
     WINNAME
+}
+
+pub struct CvDetection {
+    instant: Instant,
+    direction: Direction,
+}
+
+impl CvDetection {
+    pub fn new(direction: Direction) -> Self {
+        Self {
+            instant: Instant::now(),
+            direction,
+        }
+    }
+
+    pub fn new_with_time(direction: Direction, instant: Instant) -> Self {
+        Self { instant, direction }
+    }
 }
