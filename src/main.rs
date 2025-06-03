@@ -73,6 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let recorder_config = SynchronizedRecorderConfig {
             camera_path: PathBuf::from("/dev/video0"),
             rfid_path: PathBuf::from("/run/modelRF_Spool"),
+			read_lock: PathBuf::from("/run/modelRF_L"),
             output_video: PathBuf::from("video.avi"),
             output_video_timestamps: PathBuf::from("vid_stamps.csv"),
             output_detections: PathBuf::from("detections_stamps.csv"),

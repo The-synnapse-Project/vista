@@ -8,13 +8,14 @@ use opencv::{
     },
 };
 use std::{
+    collections::HashMap,
     env,
     path::PathBuf,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     fs::OpenOptions,
-    io::{AsyncReadExt, AsyncSeekExt},
+    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     signal,
     sync::watch,
     task,
@@ -25,6 +26,7 @@ use tokio::{
 pub struct SynchronizedRecorderConfig {
     pub camera_path: PathBuf,
     pub rfid_path: PathBuf,
+    pub read_lock: PathBuf,
     pub output_video: PathBuf,
     pub output_video_timestamps: PathBuf,
     pub output_detections: PathBuf,
@@ -153,6 +155,11 @@ impl SynchronizedRecorder {
         config: SynchronizedRecorderConfig,
         shutdown: watch::Sender<bool>,
     ) -> Result<()> {
+        info!(
+            "Starting RFID polling loop (duty cycle: {}ms)",
+            config.duty_cycle
+        );
+
         let det_path = config.output_detections.to_string_lossy();
         info!("Creating detections CSV: {}", det_path);
         let mut det_writer = WriterBuilder::new()
@@ -163,52 +170,52 @@ impl SynchronizedRecorder {
         let mut interval = interval(Duration::from_millis(config.duty_cycle));
         let mut buffer = String::new();
 
-        info!(
-            "Starting RFID polling loop (duty cycle: {}ms)",
-            config.duty_cycle
-        );
         while !*shutdown.borrow() {
             interval.tick().await;
 
-            match env::var("LEYENDO") {
-                Ok(val) if val == "1" => {
-                    debug!("Reading RFID data from {}", config.rfid_path.display());
-                    let mut file = OpenOptions::new()
-                        .read(true)
-                        .write(true)
-                        .open(&config.rfid_path)
-                        .await
-                        .context("Failed to open RFID file")?;
+            let read = tokio::fs::read_to_string(&config.read_lock)
+                .await
+                .unwrap_or_else(|_| "0".to_string());
+            let read = read.trim();
 
-                    let bytes_read = file.read_to_string(&mut buffer).await?;
-                    debug!("Read {} bytes from RFID file", bytes_read);
+            if read == "1" {
+                debug!("Reading RFID");
 
-                    if !buffer.is_empty() {
-                        let line_count = buffer.lines().count();
-                        info!("Processing {} RFID entries", line_count);
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&config.rfid_path)
+                    .await
+                    .context("Failed to read RFID spool")?;
 
-                        for line in buffer.lines() {
-                            let timestamp =
-                                SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-                            det_writer
-                                .write_record(&[timestamp.to_string(), line.trim().to_string()])?;
-                        }
-                        det_writer.flush()?;
-                        info!("Wrote {} entries to CSV", line_count);
+                file.read_to_string(&mut buffer).await?;
 
-                        // Reset and truncate file
-                        file.seek(std::io::SeekFrom::Start(0)).await?;
-                        file.set_len(0).await?;
-                        debug!("Truncated RFID file");
-                        buffer.clear();
+                if !buffer.is_empty() {
+                    debug!("Read {} bytes from RFID spool", buffer.len());
+                    let line_count = buffer.lines().count();
+
+                    for line in buffer.lines() {
+                        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+                        det_writer
+                            .write_record(&[timestamp.to_string(), line.trim().to_string()])?;
                     }
+                    det_writer.flush()?;
+                    info!("Wrote {} entries to CSV", line_count);
+
+                    file.set_len(0).await?;
+                    debug!("Errased RFID file");
+                    buffer.clear();
                 }
-                Ok(other) => {
-                    debug!("Skipping RFID read (LEYENDO={})", other);
-                }
-                Err(e) => {
-                    warning!("Environment error: {}, skipping read", e);
-                }
+            } else {
+                debug!("Clearing spool (not reading)");
+
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .open(&config.rfid_path)
+                    .await?;
+
+                file.write_all(b"").await?;
             }
         }
 
