@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use csv::{Writer, WriterBuilder};
-use log::{debug, error, info, trace, warn, warning};
+use log::{debug, info, warning};
 use opencv::{
     core::{Mat, MatTraitConst, Size},
     videoio::{
@@ -110,12 +110,12 @@ impl SynchronizedRecorder {
         info!("Starting video capture loop");
         while !*shutdown.borrow() {
             if !camera.read(&mut frame)? {
-                warn!("Failed to read frame from camera");
+                warning!("Failed to read frame from camera");
                 continue;
             }
 
             if frame.empty() {
-                trace!("Empty frame received");
+                debug!("Empty frame received");
                 continue;
             }
 
@@ -199,15 +199,15 @@ impl SynchronizedRecorder {
                         // Reset and truncate file
                         file.seek(std::io::SeekFrom::Start(0)).await?;
                         file.set_len(0).await?;
-                        debug("Truncated RFID file");
+                        debug!("Truncated RFID file");
                         buffer.clear();
                     }
                 }
                 Ok(other) => {
-                    trace!("Skipping RFID read (LEYENDO={})", other);
+                    debug!("Skipping RFID read (LEYENDO={})", other);
                 }
                 Err(e) => {
-                    warn!("Environment error: {}, skipping read", e);
+                    warning!("Environment error: {}, skipping read", e);
                 }
             }
         }

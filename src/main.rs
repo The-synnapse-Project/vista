@@ -14,6 +14,8 @@ use std::path::PathBuf;
 #[cfg(debug_assertions)]
 use std::time::Instant;
 
+mod api;
+mod auth;
 #[allow(unused)]
 mod cli;
 #[allow(unused)]
@@ -25,8 +27,6 @@ mod proc;
 pub mod recorder;
 #[allow(dead_code)]
 mod rfid;
-mod auth;
-mod api;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(debug_assertions)]
@@ -62,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("Configuration loaded successfully");
             debug!("Config: {:?}", config);
             config
-m        }
+        }
         Err(e) => {
             error!("Failed to load configuration: {}", e);
             return Err(e.into());
